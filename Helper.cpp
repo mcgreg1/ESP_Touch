@@ -30,8 +30,8 @@ unsigned long lastNtpSyncMillis = 0;
 ClockState currentClockState = STATE_BOOTING;
 // Touch Coordinate Display
 unsigned long lastTouchMillis = 0;
-const unsigned long touchDisplayTimeout = 3000;
-bool touchCoordsVisible = false;
+const unsigned long touchDisplayTimeout = 1500;
+bool touchCoordsVisible = true;
 int lastDisplayedTouchX = 0;
 int lastDisplayedTouchY = 0;
 char previousTouchCoordsStr[20] = "";
@@ -50,33 +50,134 @@ Arduino_DataBus *bus = nullptr;
 Arduino_ESP32RGBPanel *rgbpanel = nullptr;
 Arduino_RGB_Display *gfx = nullptr;
 TAMC_GT911 *ts_ptr = nullptr;
+Audio audio;
 int32_t w = 0; // Defined here, set in InitDisplay
 int32_t h = 0; // Defined here, set in InitDisplay
 
-// Custom Display Init Sequence
-const uint8_t st7701_type5_init_operations[] = {
-    // PASTE YOUR ACTUAL BYTE SEQUENCE HERE!
-    // Example placeholder:
-     0x01, 120, 0, // Software reset
-     0x11, 120, 0, // Sleep out
-     0x3a, 10, 1, 0x55, // Interface Pixel Format (16 bit)
-     // ... potentially many more commands ...
-     0x29, 120, 0 // Display on
-};
-const int st7701_type5_init_operations_len = sizeof(st7701_type5_init_operations);
+static const uint8_t custom_st7701_init_operations[] = {
+    BEGIN_WRITE,
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x13,
+    WRITE_COMMAND_8, 0xEF,
+    WRITE_BYTES, 1, 0x08,
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x10,
+
+    WRITE_C8_D16, 0xC0, 0x3B, 0x00,
+    WRITE_C8_D16, 0xC1, 0x0D, 0x02, // VBP
+    WRITE_C8_D16, 0xC2, 0x21, 0x08,
+    WRITE_C8_D8, 0xCD, 0x00,
+
+    WRITE_COMMAND_8, 0xB0, // Positive Voltage Gamma Control
+    WRITE_BYTES, 16,
+    0x00, 0x11, 0x18, 0x0E, 0x11, 0x06, 0x07, 0x08, 0x07, 0x22, 0x04, 0x12, 0x0F, 0xAA, 0x31, 0x18,
+
+    WRITE_COMMAND_8, 0xB1, // Negative Voltage Gamma Control
+    WRITE_BYTES, 16,
+    0x00, 0x11, 0x19, 0x0E, 0x12, 0x07, 0x08, 0x08, 0x08, 0x22, 0x04, 0x11, 0x11, 0xA9, 0x32, 0x18,
+
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x11,
+
+    WRITE_C8_D8, 0xB0, 0x60, // 5d
+    WRITE_C8_D8, 0xB1, 0x30, // VCOM amplitude setting
+    WRITE_C8_D8, 0xB2, 0x87, // VGH Voltage setting, 12V
+    WRITE_C8_D8, 0xB3, 0x80,
+
+    WRITE_C8_D8, 0xB5, 0x49, // VGL Voltage setting, -8.3V
+
+    WRITE_C8_D8, 0xB7, 0x85,
+    WRITE_C8_D8, 0xB8, 0x21,
+
+    WRITE_C8_D8, 0xC1, 0x78,
+    WRITE_C8_D8, 0xC2, 0x78,
+
+//    WRITE_C8_D8, 0xD0, 0x88,
+
+    WRITE_COMMAND_8, 0xE0,
+    WRITE_BYTES, 3, 0x00, 0x1B, 0x02,
+
+    WRITE_COMMAND_8, 0xE1,
+    WRITE_BYTES, 11,
+    0x08, 0xA0, 0x00, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x44, 0x44,
+    
+    WRITE_COMMAND_8, 0xE2,
+    WRITE_BYTES, 13,
+    0x11, 0x11, 0x44, 0x44, 0xED, 0xA0, 0x00, 0x00, 0xEC, 0xA0, 0x00, 0x00, 0x00,
+
+    WRITE_COMMAND_8, 0xE3,
+    WRITE_BYTES, 4, 0x00, 0x00, 0x11, 0x11,
+
+    WRITE_C8_D16, 0xE4, 0x44, 0x44,
+
+    WRITE_COMMAND_8, 0xE5,
+    WRITE_BYTES, 16,
+    0x0A, 0xE9, 0xD8, 0xA0, 0x0C, 0xEB, 0xD8, 0xA0, 0x0E, 0xED, 0xD8, 0xA0, 0x10, 0xEF, 0xD8, 0xA0,
+
+    WRITE_COMMAND_8, 0xE6,
+    WRITE_BYTES, 4, 0x00, 0x00, 0x11, 0x11,
+
+    WRITE_C8_D16, 0xE7, 0x44, 0x44,
+
+    WRITE_COMMAND_8, 0xE8,
+    WRITE_BYTES, 16,
+    0x09, 0xE8, 0xD8, 0xA0, 0x0B, 0xEA, 0xD8, 0xA0, 0x0D, 0xEC, 0xD8, 0xA0, 0x0F, 0xEE, 0xD8, 0xA0,
+
+    WRITE_COMMAND_8, 0xEB,
+    WRITE_BYTES, 7,
+    0x02, 0x00, 0xE4, 0xE4, 0x88, 0x00, 0x40,
+
+    WRITE_COMMAND_8, 0xEC,
+    WRITE_BYTES, 2,
+    0x3C, 0x00,
+
+    WRITE_COMMAND_8, 0xED,
+    WRITE_BYTES, 16,
+    0xAB, 0x89, 0x76, 0x54, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x20, 0x45, 0x67, 0x98, 0xBA,
+
+//    WRITE_COMMAND_8, 0xEF,
+//    WRITE_BYTES, 6,
+//    0x10, 0x0D, 0x04, 0x08,
+//    0x3F, 0x1F,
+
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x00,
+
+    WRITE_COMMAND_8, 0x3A,
+    WRITE_BYTES, 1,
+    0x66,
+
+    WRITE_COMMAND_8, 0x36,
+    WRITE_BYTES, 1,
+    0x08,
+
+    WRITE_COMMAND_8, 0x11, // Sleep Out
+    END_WRITE,
+
+    DELAY, 120,
+
+    BEGIN_WRITE,
+    WRITE_COMMAND_8, 0x29, // Display On
+    END_WRITE,
+
+    DELAY, 50};
+const int custom_st7701_init_operations_len = sizeof(custom_st7701_init_operations);
 
 // --- Function Implementations ---
 
 void InstantiateGfxAndTouchObjects() {
     Serial.println("FUNCTION: InstantiateGfxAndTouchObjects");
-    if (gfx || ts_ptr) { Serial.println("  WARNING: Objects already instantiated!"); return; }
+    if (gfx || ts_ptr) { 
+        Serial.println("  WARNING: Objects already instantiated!"); 
+        return; 
+    }
 
     // Instantiate Display Objects
     bus = new Arduino_SWSPI( GFX_NOT_DEFINED, 39, 48, 47, GFX_NOT_DEFINED );
     rgbpanel = new Arduino_ESP32RGBPanel( 18, 17, 16, 21, 4, 5, 6, 7, 15, 8, 20, 3, 46, 9, 10, 11, 12, 13, 14, 0,
         1, 10, 8, 50, 1, 10, 8, 20, 0, 12000000, false, 0, 0, 0);
     gfx = new Arduino_RGB_Display( 480, 480, rgbpanel, 0, true, bus, GFX_NOT_DEFINED,
-        st7701_type5_init_operations, st7701_type5_init_operations_len);
+        custom_st7701_init_operations, custom_st7701_init_operations_len);
 
     // Instantiate Touch Object
     // Note: w and h are not set yet, InitTouch will use the defines/constructor defaults for max(w,h) etc.
@@ -93,8 +194,14 @@ void InstantiateGfxAndTouchObjects() {
 
 void InitDisplay() {
     Serial.println("FUNCTION: InitDisplay");
-    if (!gfx) { Serial.println("  ERROR: gfx object not instantiated!"); return; }
-    if (!gfx->begin()) { Serial.println("  ERROR: gfx->begin() failed!"); while (1); }
+    if (!gfx) { 
+        Serial.println("  ERROR: gfx object not instantiated!"); 
+        return; 
+    }
+    if (!gfx->begin()) { 
+        Serial.println("  ERROR: gfx->begin() failed!"); 
+        while (1); 
+    }
     w = gfx->width(); // Set global dimensions
     h = gfx->height();
     RGB565_LIGHT_GREY = gfx->color565(170, 170, 170); // Init color
@@ -104,21 +211,44 @@ void InitDisplay() {
         pinMode(GFX_BL, OUTPUT); digitalWrite(GFX_BL, HIGH); Serial.println("  Backlight ON.");
     #endif
     Serial.println("FUNCTION END: InitDisplay");
+    centerText("Screen initialized", 100, RGB565_LIGHT_GREY, font_freesansbold18, 1);
 }
 
 void InitTouch() {
     Serial.println("FUNCTION: InitTouch");
-    if (!ts_ptr) { Serial.println(" ERROR: ts_ptr object not instantiated!"); return; }
+    if (!ts_ptr) { 
+        Serial.println(" ERROR: ts_ptr object not instantiated!"); 
+        return; 
+    }
     Wire.begin(TOUCH_GT911_SDA, TOUCH_GT911_SCL); // Init I2C
     ts_ptr->begin(); // Init communication with chip
     // ts_ptr->setRotation(...); // Add if needed
     Serial.println("  GT911 Initialized.");
     Serial.println("FUNCTION END: InitTouch");
+    centerText("Touch initialized", 150, RGB565_LIGHT_GREY, font_freesansbold18, 1);
+}
+
+bool InitSD() {
+      // SD card init
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI, SD_CS);
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD Card Mount Failed");
+    return false;
+  }
+  return true;
+}
+
+void InitAudio() {
+  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  audio.setVolume(5);//FIXME: remember the last audio
 }
 
 bool InitWifiManager() {
     Serial.println("FUNCTION: InitWifiManager");
-    if (WiFi.status() == WL_CONNECTED) { Serial.println("  Already connected."); return true; }
+    if (WiFi.status() == WL_CONNECTED) { 
+        Serial.println("  Already connected."); 
+        return true; 
+    }
     WiFiManager wifiManager;
     // wifiManager.resetSettings();
     wifiManager.setConnectTimeout(10);
@@ -132,10 +262,12 @@ bool InitWifiManager() {
     bool success = wifiManager.autoConnect("FractalClockAP"); // Blocking call
     if (!success) {
         Serial.println("  WiFiManager Failed/Timeout.");
-        displayMessageScreen("WiFi Failed", "", RED); delay(2000);
+        displayMessageScreen("WiFi Failed", "", RED); 
+        delay(2000);
     } else {
         Serial.println("  WiFiManager Connected!");
-        displayMessageScreen("WiFi Connected!", WiFi.localIP().toString().c_str(), GREEN); delay(1500);
+        displayMessageScreen("WiFi Connected!", WiFi.localIP().toString().c_str(), GREEN); 
+        delay(1500);
     }
     Serial.println("FUNCTION END: InitWifiManager");
     return success;
@@ -248,78 +380,164 @@ void displayClock(const struct tm* currentTime) {
     }
 }
 
-void UpdateTouchCoordsDisplay() {
-    if (!gfx) return;
-    char currentCoordsStr[20];
-    bool needsRedraw = false; bool clearNeeded = false;
-    unsigned long currentMillis = millis();
-
-    if (touchCoordsVisible) {
-        if (currentMillis - lastTouchMillis > touchDisplayTimeout) { touchCoordsVisible = false; clearNeeded = true; currentCoordsStr[0]='\0'; }
-        else { snprintf(currentCoordsStr, sizeof(currentCoordsStr), "T:%3d,%3d", lastDisplayedTouchX, lastDisplayedTouchY); if(strcmp(currentCoordsStr, previousTouchCoordsStr) != 0 || prev_touch_coords_w == 0) needsRedraw = true; }
-    } else { currentCoordsStr[0]='\0'; if(prev_touch_coords_w > 0) clearNeeded = true; }
-
-    if (needsRedraw || clearNeeded) {
-        if (prev_touch_coords_w > 0) { gfx->fillRect(prev_touch_coords_x, prev_touch_coords_y, prev_touch_coords_w, prev_touch_coords_h, BLACK); prev_touch_coords_w = 0; }
-        if (touchCoordsVisible) {
-            gfx->setFont(NULL); gfx->setTextSize(1); gfx->setTextColor(YELLOW);
-            int16_t x1, y1; uint16_t w1, h1; gfx->getTextBounds(currentCoordsStr, 0, 0, &x1, &y1, &w1, &h1);
-            int cursorX = 0 - x1; int cursorY = 0 - y1; gfx->setCursor(cursorX, cursorY); gfx->print(currentCoordsStr);
-            prev_touch_coords_x = cursorX + x1; prev_touch_coords_y = cursorY + y1; prev_touch_coords_w = w1; prev_touch_coords_h = h1;
-        } else { prev_touch_coords_w = 0; prev_touch_coords_h = 0; }
-        strcpy(previousTouchCoordsStr, currentCoordsStr);
-    }
-}
 
 void displayMessageScreen(const char* line1, const char* line2, uint16_t color) {
     Serial.printf("FUNCTION: displayMessageScreen - L1: %s, L2: %s\n", line1, line2 ? line2 : "NULL");
     if (!gfx) return;
-    gfx->fillScreen(BLACK); gfx->setFont(NULL); gfx->setTextSize(2); gfx->setTextColor(color);
-    int16_t x1, y1; uint16_t w1, h1, w2 = 0, h2 = 0; int lineSpacing = 10;
+    gfx->fillScreen(BLACK);
+    gfx->setFont(NULL);
+    gfx->setTextSize(2);
+    gfx->setTextColor(color);
+
+    int16_t x1, y1;
+    uint16_t w1, h1, w2 = 0, h2 = 0;
+    int lineSpacing = 10;
+
     gfx->getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
     if (line2) gfx->getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
     int totalDrawHeight = h1 + (line2 ? (h2 + lineSpacing) : 0);
-    int startY = (h - totalDrawHeight) / 2; if (startY < 0) startY = 0;
+    int startY = (h - totalDrawHeight) / 2;
+    if (startY < 0) startY = 0;
+
     centerText(line1, startY, color, NULL, 2);
     if (line2) centerText(line2, startY + h1 + lineSpacing, color, NULL, 2);
+
     Serial.println("FUNCTION END: displayMessageScreen");
 }
 
 void centerText(const char *text, int y, uint16_t color, const GFXfont *font, uint8_t size) {
     if (!gfx || !text || strlen(text) == 0) return;
-    int16_t x1, y1; uint16_t text_w, text_h;
-    gfx->setFont(font); gfx->setTextSize(size);
+
+    int16_t x1, y1;
+    uint16_t text_w, text_h;
+
+    gfx->setFont(font);
+    gfx->setTextSize(size);
     gfx->getTextBounds(text, 0, 0, &x1, &y1, &text_w, &text_h);
-    int cursor_x = (w - text_w) / 2 - x1; int cursor_y = y - y1;
+
+    int cursor_x = (w - text_w) / 2 - x1;
+    int cursor_y = y - y1;
     if (cursor_x < 0) cursor_x = 0;
-    gfx->setCursor(cursor_x, cursor_y); gfx->setTextColor(color); gfx->print(text);
+
+    gfx->setCursor(cursor_x, cursor_y);
+    gfx->setTextColor(color);
+    gfx->print(text);
 }
 
 void handleTouchInput() {
-     if (!ts_ptr) return;
-     // Reads touch hardware state into ts_ptr->isTouched, ts_ptr->touches, ts_ptr->points[]
-     // This is already done in the main loop to update the coordinate display vars.
-     // This function would be expanded in the future if touch actions (buttons etc.) are needed.
+    if (ts_ptr) {
+        ts_ptr->read();
+        if (ts_ptr->isTouched && ts_ptr->touches > 0) {
+            lastDisplayedTouchX = 480- ts_ptr->points[0].x;//FIXME: I don't know why
+            lastDisplayedTouchY = 480 -ts_ptr->points[0].y;
+            lastTouchMillis = millis();
+
+            if (!touchCoordsVisible) {
+                 touchCoordsVisible = true; 
+                 previousTouchCoordsStr[0] = ' ';
+                 previousTouchCoordsStr[1] = '\0';
+            }
+            
+        }
+    }
+}
+void UpdateTouchCoordsDisplay() {
+    if (!gfx) return;
+    char currentCoordsStr[20];
+    bool currentlyVisibleTarget = false;
+    unsigned long currentMillis = millis();
+    // Determine target visibility and string content
+    if (touchCoordsVisible) { 
+        if (currentMillis - lastTouchMillis <= touchDisplayTimeout) {
+            // Timer active and not expired
+            currentlyVisibleTarget = true;
+            snprintf(currentCoordsStr, sizeof(currentCoordsStr), "T:%3d,%3d", lastDisplayedTouchX, lastDisplayedTouchY);
+        } else {
+            currentlyVisibleTarget = false;
+            currentCoordsStr[0] = '\0';
+            touchCoordsVisible = false; 
+        }
+    } else {
+        // Timer not active
+        currentlyVisibleTarget = false;
+        currentCoordsStr[0] = '\0';
+    }
+    if (strcmp(currentCoordsStr, previousTouchCoordsStr) != 0) {
+        // --- 1. Always Clear the Fixed Area ---
+        gfx->fillRect(TOUCH_COORD_AREA_X, TOUCH_COORD_AREA_Y,
+                      TOUCH_COORD_AREA_W, TOUCH_COORD_AREA_H, BLACK);
+
+        // --- 2. Draw New Text 
+        if (currentlyVisibleTarget) {
+            gfx->setFont(NULL); // Default font
+            gfx->setTextSize(1); // Small size
+            gfx->setTextColor(DARKGREY);
+
+            // simply draw at the top-left of the area
+            int16_t x1, y1; uint16_t w1, h1;
+            gfx->getTextBounds(currentCoordsStr, 0, 0, &x1, &y1, &w1, &h1);
+
+            // Draw near top-left of the defined area
+            int cursorX = TOUCH_COORD_AREA_X - x1; // Adjust slightly for font's internal padding
+            int cursorY = TOUCH_COORD_AREA_Y - y1; // Adjust for font's top bearing
+            gfx->setCursor(cursorX, cursorY);
+            gfx->print(currentCoordsStr);
+        }
+        strcpy(previousTouchCoordsStr, currentCoordsStr);
+    }
 }
 
 void incrementLocalTime() {
-     if (!timeSynchronized) return;
-     time_t currentTimeSec = mktime(&timeinfo);
-     currentTimeSec += 1;
-     localtime_r(¤tTimeSec, &timeinfo);
+    if (!timeSynchronized) return;
+
+    time_t currentTimeSec = mktime(&timeinfo);
+    currentTimeSec += 1;
+    localtime_r(&currentTimeSec, &timeinfo);
 }
 
-int calculateFutureTimeNum(int h, int m, int s, int add) { return 0; /* Placeholder */ }
+int calculateFutureTimeNum(int h, int m, int s, int add) {
+    return 0; // Placeholder
+}
 
 void primeFactorsToString(int n, char* buffer, size_t bufferSize) {
-     if (!buffer || bufferSize == 0) return;
-    buffer[0] = '\0'; char tempBuf[20];
-    if (n <= 0) { strncpy(buffer, "0", bufferSize - 1); buffer[bufferSize-1]='\0'; return; }
-    if (n == 1) { strncpy(buffer, "1", bufferSize - 1); buffer[bufferSize-1]='\0'; return; }
-    size_t currentLen = 0; bool firstFactor = true;
-    auto addFactor = [&](const char* factorStr) { /* ... lambda as before ... */ return true;}; // Needs full lambda
-    while (n % 2 == 0) { if (!addFactor("2")) goto end_factorization; n /= 2; }
-    for (int i = 3; i * i <= n; i += 2) { while (n % i == 0) { snprintf(tempBuf, sizeof(tempBuf), "%d", i); if (!addFactor(tempBuf)) goto end_factorization; n /= i; }}
-    if (n > 1) { snprintf(tempBuf, sizeof(tempBuf), "%d", n); addFactor(tempBuf); }
-end_factorization: buffer[bufferSize - 1] = '\0';
+    if (!buffer || bufferSize == 0) return;
+
+    buffer[0] = '\0';
+    char tempBuf[20];
+
+    if (n <= 0)  { strncpy(buffer, "0", bufferSize - 1); buffer[bufferSize - 1] = '\0'; return; }
+    if (n == 1)  { strncpy(buffer, "1", bufferSize - 1); buffer[bufferSize - 1] = '\0'; return; }
+
+    size_t currentLen = 0;
+    bool firstFactor = true;
+
+    auto addFactor = [&](const char* factorStr) {
+        // ... lambda as before ...
+        return true;
+    };
+
+    while (n % 2 == 0) {
+        if (!addFactor("2")) goto end_factorization;
+        n /= 2;
+    }
+
+    for (int i = 3; i * i <= n; i += 2) {
+        while (n % i == 0) {
+            snprintf(tempBuf, sizeof(tempBuf), "%d", i);
+            if (!addFactor(tempBuf)) goto end_factorization;
+            n /= i;
+        }
+    }
+
+    if (n > 1) {
+        snprintf(tempBuf, sizeof(tempBuf), "%d", n);
+        addFactor(tempBuf);
+    }
+
+end_factorization:
+    buffer[bufferSize - 1] = '\0';
 }
+
+
+

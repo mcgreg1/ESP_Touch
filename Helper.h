@@ -12,6 +12,8 @@ void InstantiateGfxAndTouchObjects(); // Renamed for clarity
 void InitDisplay();
 void InitTouch();
 bool InitWifiManager();
+bool InitSD();
+void InitAudio();
 
 // NTP
 bool syncNTPTime();

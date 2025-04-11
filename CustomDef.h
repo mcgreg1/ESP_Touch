@@ -1,6 +1,11 @@
 #ifndef CUSTOMDEF_H
 #define CUSTOMDEF_H
 
+
+#define TOUCH_COORD_AREA_X 5
+#define TOUCH_COORD_AREA_Y 5
+#define TOUCH_COORD_AREA_W 80 // Adjust width as needed (e.g., for "T:480,480")
+#define TOUCH_COORD_AREA_H 12 // Adjust height as needed (default font size 1 height is ~8px + padding)
 // --- Library Includes ---
 // Include libraries needed for types used in declarations below
 #include <WiFi.h>
@@ -11,12 +16,14 @@
 #include <Wire.h>
 #include <TAMC_GT911.h>
 #include <Arduino_GFX_Library.h>
+#include "Audio.h"
+#include "SD.h"
 
 // --- Font Includes ---
 // Include fonts here as they define types (GFXfont) needed by extern declarations
-#include "C:\Users\mcgreg\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSansBold18pt7b.h"
-#include "C:\Users\mcgreg\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans18pt7b.h"
-#include "C:\Users\mcgreg\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans12pt7b.h"
+#include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSansBold18pt7b.h"
+#include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans18pt7b.h"
+#include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans12pt7b.h"
 
 // --- Display Configuration ---
 #define GFX_BL 38
@@ -36,11 +43,22 @@ extern const long gmtOffset_sec;
 extern const int daylightOffset_sec;
 extern const long ntpSyncInterval;
 
+extern Audio audio;
 // --- Touch Screen Pin Configuration ---
 #define TOUCH_GT911_SDA 19
 #define TOUCH_GT911_SCL 45
 #define TOUCH_GT911_INT -1
 #define TOUCH_GT911_RST -1
+
+// --- SD Card and Audio Pin Configuration ---
+#define I2S_DOUT      40
+#define I2S_BCLK      1
+#define I2S_LRC       2
+
+#define SD_CS         42
+#define SPI_MOSI      47
+#define	SPI_SCK       48
+#define SPI_MISO      41
 
 // --- Clock States ---
 enum ClockState {
