@@ -20,6 +20,17 @@ const long interval = 1000;
 const char *Wochentage[] = {"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"};
 const char *Monate[] = {"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"};
 
+const char *ClockStateNames[NUM_CLOCK_STATES] = {
+    "Booting",            // STATE_BOOTING
+    "Init WiFi",          // STATE_INIT_WIFI
+    "WiFi Config Portal", // STATE_WIFI_CONFIG_PORTAL
+    "Connecting WiFi",    // STATE_CONNECTING_WIFI
+    "Waiting for NTP",    // STATE_WAITING_FOR_NTP
+    "Running",            // STATE_RUNNING
+    "WiFi/NTP Failed"     // STATE_WIFI_NTP_FAILED
+    "Play Audio"
+};
+
 // Other Globals
 bool firstDisplayDone = false;
 uint16_t RGB565_LIGHT_GREY = 0; // Initialized in InitDisplay
@@ -28,6 +39,7 @@ unsigned long previousMillis = 0;
 bool timeSynchronized = false;
 unsigned long lastNtpSyncMillis = 0;
 ClockState currentClockState = STATE_BOOTING;
+ClockState lastClockState = STATE_BOOTING;
 // Touch Coordinate Display
 unsigned long lastTouchMillis = 0;
 const unsigned long touchDisplayTimeout = 1500;
@@ -235,38 +247,53 @@ bool InitSD() {
     Serial.println("SD Card Mount Failed");
     return false;
   }
+  Serial.println("SD Card Mount successful!");
   return true;
 }
 
 void InitAudio() {
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(5);//FIXME: remember the last audio
+  Serial.println("Audio Initialized!");
 }
+
+// In Helper.cpp
 
 bool InitWifiManager() {
     Serial.println("FUNCTION: InitWifiManager");
-    if (WiFi.status() == WL_CONNECTED) { 
-        Serial.println("  Already connected."); 
-        return true; 
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("  Already connected to WiFi.");
+        return true;
     }
     WiFiManager wifiManager;
-    // wifiManager.resetSettings();
-    wifiManager.setConnectTimeout(10);
-    // Optionally set custom Portal name/password, IP, etc.
-    // wifiManager.setAPStaticIPConfig(...);
-    // wifiManager.setMinimumSignalQuality(30); // Example
-    // wifiManager.setCustomHeadElement("<style>body{color: #eee; background: #333;}</style>"); // Example
+    // wifiManager.resetSettings(); // Uncomment to force portal for testing
+
+    // Set timeout for trying saved credentials (remains short)
+    wifiManager.setConnectTimeout(10); // 10 seconds
+
+    // *** ADDED: Set timeout for the configuration portal itself ***
+    // If it can't connect to saved creds, it will start the portal,
+    // but only keep it running for 120 seconds (2 minutes).
+    // After this, autoConnect will return false if no connection was made.
+    // Adjust timeout as needed.
+    wifiManager.setConfigPortalTimeout(120);
 
     displayMessageScreen("Config WiFi", "Connect: FractalClockAP", WHITE);
-    Serial.println("  Starting WiFiManager autoConnect...");
-    bool success = wifiManager.autoConnect("FractalClockAP"); // Blocking call
+    Serial.println("  Starting WiFiManager autoConnect (with portal timeout)...");
+
+    // yield(); // Yield just before the blocking call (minor effect maybe)
+    bool success = wifiManager.autoConnect("FractalClockAP");
+    // yield(); // Yield just after the blocking call (minor effect maybe)
+
+
     if (!success) {
         Serial.println("  WiFiManager Failed/Timeout.");
-        displayMessageScreen("WiFi Failed", "", RED); 
+        // Portal might have timed out, or connection failed after portal.
+        displayMessageScreen("WiFi Failed", "Check Network or Portal", RED);
         delay(2000);
     } else {
         Serial.println("  WiFiManager Connected!");
-        displayMessageScreen("WiFi Connected!", WiFi.localIP().toString().c_str(), GREEN); 
+        displayMessageScreen("WiFi Connected!", WiFi.localIP().toString().c_str(), GREEN);
         delay(1500);
     }
     Serial.println("FUNCTION END: InitWifiManager");

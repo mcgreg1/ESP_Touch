@@ -2,8 +2,8 @@
 #define CUSTOMDEF_H
 
 
-#define TOUCH_COORD_AREA_X 5
-#define TOUCH_COORD_AREA_Y 5
+#define TOUCH_COORD_AREA_X 400
+#define TOUCH_COORD_AREA_Y 460
 #define TOUCH_COORD_AREA_W 80 // Adjust width as needed (e.g., for "T:480,480")
 #define TOUCH_COORD_AREA_H 12 // Adjust height as needed (default font size 1 height is ~8px + padding)
 // --- Library Includes ---
@@ -68,9 +68,12 @@ enum ClockState {
     STATE_CONNECTING_WIFI,
     STATE_WAITING_FOR_NTP,
     STATE_RUNNING,
-    STATE_WIFI_NTP_FAILED
+    STATE_WIFI_NTP_FAILED,
+    STATE_PLAY_AUDIO,
+    NUM_CLOCK_STATES        // just a counter of the total states, leave it last!!!      
 };
 
+extern const char *ClockStateNames[NUM_CLOCK_STATES]; // Use NUM_CLOCK_STATES for size
 // --- Factor String Buffer Size ---
 #define MAX_FACTOR_STR_LEN 512
 
@@ -83,6 +86,7 @@ extern const long interval;
 extern bool timeSynchronized;
 extern unsigned long lastNtpSyncMillis;
 extern ClockState currentClockState;
+extern ClockState lastClockState;
 extern bool firstDisplayDone;
 
 // German days/months
