@@ -24,6 +24,7 @@ void setup() {
             currentClockState = STATE_RUNNING;
             gfx->fillScreen(BLACK);      // Clear message screen
             ShowStaticFields(&timeinfo); // Draw initial date/weekday
+            
         } else {
             currentClockState = STATE_WIFI_NTP_FAILED;
             // Error message shown by syncNTPTime
@@ -38,6 +39,7 @@ void setup() {
     previousMillis = millis(); // Start the 1-second display timer
     Serial.println("Setup Complete.");
     audio.connecttohost("http://streams.egofm.de/egoFM-hq/");
+    resyncNTPTime();
 }
 
 // --- Loop ---
@@ -45,6 +47,31 @@ void loop() {
     unsigned long currentMillis = millis();
     handleTouchInput();
     audio.loop();
+    
+// --- Periodic NTP Re-sync Check ---
+    // Check if time has been synchronized at least once and the interval has passed
+    if (timeSynchronized && (currentMillis - lastNtpSyncMillis >= ntpSyncInterval)) {
+        resyncNTPTime();
+         // lastNtpSyncMillis is updated inside resyncTimeNTP only on success,
+         // ensuring it retries sooner if the sync fails.
+    }
+
+    // --- Update Display via Local Time Increment (Every Second) ---
+    if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis; // Reset the 1-second tick timer
+
+        if (timeSynchronized) {
+            // --- Increment Local Time ---
+            time_t currentTimeSec = mktime(&timeinfo); // Convert struct tm to seconds since epoch
+            currentTimeSec += 1;                       // Add one second
+            localtime_r(&currentTimeSec, &timeinfo);   // Convert back to struct tm (thread-safe), updating global timeinfo
+
+            // --- Update Dynamic Parts of Display ---
+            // This function now handles partial updates for time and factors
+            displayClock(&timeinfo);
+        }
+    }
+
     if (touchCoordsVisible)
         UpdateTouchCoordsDisplay();
 
@@ -52,15 +79,7 @@ void loop() {
          Serial.printf("State Change: %s -> %s\n", ClockStateNames[lastClockState], ClockStateNames[currentClockState]);
          lastClockState=currentClockState;
     }
-    if (currentClockState==STATE_RUNNING)
-    {
-        //audio.connecttohost("http://streams.egofm.de/egoFM-hq/");
-        currentClockState=STATE_PLAY_AUDIO;
-    }
-    if (currentClockState==STATE_PLAY_AUDIO)
-    {
-            
-    }
+
     /*
     // --- Main State Machine ---
     switch (currentClockState) {
