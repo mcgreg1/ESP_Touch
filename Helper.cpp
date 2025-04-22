@@ -531,40 +531,41 @@ void primeFactorsToString(int n, char* buffer, size_t bufferSize) {
     if (!buffer || bufferSize == 0) return;
 
     buffer[0] = '\0';
-    char tempBuf[20];
+    char tempBuf[20];  // temporary buffer to hold one factor string
 
-    if (n <= 0)  { strncpy(buffer, "0", bufferSize - 1); buffer[bufferSize - 1] = '\0'; return; }
-    if (n == 1)  { strncpy(buffer, "1", bufferSize - 1); buffer[bufferSize - 1] = '\0'; return; }
-
-    size_t currentLen = 0;
-    bool firstFactor = true;
-
-    auto addFactor = [&](const char* factorStr) {
-        // ... lambda as before ...
-        return true;
-    };
-
-    while (n % 2 == 0) {
-        if (!addFactor("2")) goto end_factorization;
-        n /= 2;
-    }
-
-    for (int i = 3; i * i <= n; i += 2) {
-        while (n % i == 0) {
-            snprintf(tempBuf, sizeof(tempBuf), "%d", i);
-            if (!addFactor(tempBuf)) goto end_factorization;
-            n /= i;
+    if (n <= 0) {
+        strncpy(buffer, "0", bufferSize - 1);
+        buffer[bufferSize - 1] = '\0';
+    } else if (n == 1) {
+        strncpy(buffer, "1", bufferSize - 1);
+        buffer[bufferSize - 1] = '\0';
+    } else {
+        while (n % 2 == 0) {
+            snprintf(tempBuf, sizeof(tempBuf), "2*");
+            strncat(buffer, tempBuf, bufferSize - strlen(buffer) - 1);
+            n /= 2;
+            yield(); // If you're using Arduino or similar environment
+        }
+        for (int i = 3; i * i <= n; i += 2) {
+            while (n % i == 0) {
+                snprintf(tempBuf, sizeof(tempBuf), "%d*", i);
+                strncat(buffer, tempBuf, bufferSize - strlen(buffer) - 1);
+                n /= i;
+                yield();
+            }
+        }
+        if (n > 1) {
+            snprintf(tempBuf, sizeof(tempBuf), "%d*", n);
+            strncat(buffer, tempBuf, bufferSize - strlen(buffer) - 1);
+        }
+        // Remove trailing '*'
+        int len = strlen(buffer);
+        if (len > 0 && buffer[len - 1] == '*') {
+            buffer[len - 1] = '\0';
         }
     }
-
-    if (n > 1) {
-        snprintf(tempBuf, sizeof(tempBuf), "%d", n);
-        addFactor(tempBuf);
-    }
-
-end_factorization:
-    buffer[bufferSize - 1] = '\0';
 }
+
 
 
 
