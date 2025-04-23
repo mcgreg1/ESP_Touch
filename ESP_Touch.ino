@@ -7,10 +7,15 @@ void setup() {
     currentClockState = STATE_BOOTING;
 
     InstantiateGfxAndTouchObjects(); // Creates gfx, bus, rgbpanel, ts_ptr objects
+    delay(100);
     InitDisplay();                   // Initializes gfx, sets w/h, clears screen, backlight
+    delay(100);
     InitTouch();                     // Initializes touch controller via I2C
+    delay(100);
     //InitSD();
     InitAudio();
+    delay(100);
+    initializeColors();
     Serial.println("INIT WIFI");
     currentClockState = STATE_INIT_WIFI;
 
@@ -38,13 +43,17 @@ void setup() {
 
     previousMillis = millis(); // Start the 1-second display timer
     Serial.println("Setup Complete.");
-    audio.connecttohost("http://streams.egofm.de/egoFM-hq/");
+    //audio.connecttohost("http://streams.egofm.de/egoFM-hq/");
     resyncNTPTime();
 }
 
 // --- Loop ---
 void loop() {
     unsigned long currentMillis = millis();
+
+    // --- 1. Read Touch Hardware State ---
+    bool isTouchedNow = false;
+    int currentTouchX = -1, currentTouchY = -1;
     handleTouchInput();
     audio.loop();
     
@@ -126,6 +135,7 @@ void loop() {
     yield(); // Yield for system tasks
 }
 // optional
+/*
 void audio_info(const char *info){
     Serial.print("info        "); Serial.println(info);
 }
@@ -156,3 +166,4 @@ void audio_lasthost(const char *info){  //stream URL played
 void audio_eof_speech(const char *info){
     Serial.print("eof_speech  ");Serial.println(info);
 }
+*/

@@ -33,7 +33,12 @@ const char *ClockStateNames[NUM_CLOCK_STATES] = {
 
 // Other Globals
 bool firstDisplayDone = false;
-uint16_t RGB565_LIGHT_GREY = 0; // Initialized in InitDisplay
+// --- Colors ---
+uint16_t RGB565_LIGHT_GREY;
+uint16_t COLOR_BUTTON_BG_IDLE;
+uint16_t COLOR_BUTTON_BG_ACTIVE;
+uint16_t COLOR_BUTTON_TEXT;
+
 struct tm timeinfo;
 unsigned long previousMillis = 0;
 bool timeSynchronized = false;
@@ -51,6 +56,11 @@ uint16_t prev_touch_coords_x = 0;
 uint16_t prev_touch_coords_y = 0;
 uint16_t prev_touch_coords_w = 0;
 uint16_t prev_touch_coords_h = 0;
+bool touchRegisteredThisPress = false; 
+bool wasTouchedPreviously = false;
+
+unsigned long lastButtonActionTime = 0; // Stores millis() when a button was last acted upon
+const unsigned long buttonDebounceDelay = 250; // Cooldown in milliseconds (adjust as needed)
 
 // Font pointers
 const GFXfont *font_freesansbold18 = &FreeSansBold18pt7b;
@@ -257,7 +267,13 @@ void InitAudio() {
   Serial.println("Audio Initialized!");
 }
 
-// In Helper.cpp
+void initializeColors() {
+    RGB565_LIGHT_GREY = gfx->color565(170, 170, 170);
+    // Define button colors
+    COLOR_BUTTON_BG_IDLE = gfx->color565(80, 80, 80);     // Dark Grey
+    COLOR_BUTTON_BG_ACTIVE = gfx->color565(0, 180, 0);   // Green
+    COLOR_BUTTON_TEXT = WHITE;                          // White text
+}
 
 bool InitWifiManager() {
     Serial.println("FUNCTION: InitWifiManager");
@@ -322,6 +338,8 @@ bool syncNTPTime() {
     return success;
 }
 
+
+
 void resyncNTPTime() {
     Serial.println("FUNCTION: resyncNTPTime");
     if (currentClockState != STATE_RUNNING) { Serial.println("  Skipped: Not RUNNING"); return; }
@@ -338,10 +356,12 @@ void resyncNTPTime() {
      Serial.println("FUNCTION END: resyncNTPTime");
 }
 
+// Draws static elements (Date, Weekday) AND initial button states
 void ShowStaticFields(const struct tm* currentTime) {
     Serial.println("FUNCTION: ShowStaticFields");
      if (!gfx || currentTime == NULL) return;
-    // Simple fixed layout for static fields
+
+    // --- Draw Date/Weekday (Top Part) ---
     const int y_weekday = 12;
     const int lineSpacing = 10;
     int16_t tx, ty; uint16_t tw, mainFontHeight;
@@ -354,10 +374,18 @@ void ShowStaticFields(const struct tm* currentTime) {
     centerText(buffer, y_weekday, RGB565_LIGHT_GREY, font_freesansbold18, 1);
     snprintf(buffer, sizeof(buffer), "%d. %s %d", currentTime->tm_mday, Monate[currentTime->tm_mon], currentTime->tm_year + 1900);
     centerText(buffer, y_date, RGB565_LIGHT_GREY, font_freesansbold18, 1);
+
+    // --- Draw Buttons (Bottom Part) ---
+    Serial.println("  Drawing initial button states...");
+    for (int i = 0; i < NUM_STATION_BUTTONS; ++i) {
+        drawStationButton(i, (i == activeStationIndex)); // Draw based on initial active state (-1)
+    }
+    drawVolumeButtons(); // Draw volume buttons
+
     Serial.println("FUNCTION END: ShowStaticFields");
 }
 
-void displayClock(const struct tm* currentTime) {
+void displayClock(const struct tm* currentTime, bool showFractals) {
      if (!gfx || currentTime == NULL) return;
      if (currentClockState != STATE_RUNNING) return; // Only draw if running normally
 
@@ -373,37 +401,47 @@ void displayClock(const struct tm* currentTime) {
     // Simplified Layout (Assume static fields take up ~60 pixels height)
     const int static_area_height = 60;
     int16_t tx, ty; uint16_t tw, timeHeight, factorFontHeight;
-    gfx->setFont(timeFont); gfx->setTextSize(2);
+    gfx->setFont(timeFont); 
+    gfx->setTextSize(2);
     gfx->getTextBounds("00:00:00", 0, 0, &tx, &ty, &tw, &timeHeight);
-    gfx->setFont(factorFont); gfx->setTextSize(1);
+    gfx->setFont(factorFont); 
+    gfx->setTextSize(1);
     gfx->getTextBounds("0", 0, 0, &tx, &ty, &tw, &factorFontHeight);
-    const int lineSpacing = 10;
+    const int lineSpacing = 50;
     int y_time_top_target = static_area_height + lineSpacing; // Time below static area
     int y_factor_top_target = y_time_top_target + timeHeight + lineSpacing;
 
     char timeStr[9];
     snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", currentTime->tm_hour, currentTime->tm_min, currentTime->tm_sec);
-    int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
-    char factorBuffer[MAX_FACTOR_STR_LEN];
-    primeFactorsToString(timeNum, factorBuffer, sizeof(factorBuffer));
-    char combinedOutputStr[10 + MAX_FACTOR_STR_LEN];
-    snprintf(combinedOutputStr, sizeof(combinedOutputStr), "%06d=%s", timeNum, factorBuffer);
+
 
     if (strcmp(timeStr, previousTimeStr) != 0) {
         if (prev_time_w > 0) { gfx->fillRect((w - prev_time_w) / 2, prev_time_y, prev_time_w, prev_time_h, BLACK); }
         centerText(timeStr, y_time_top_target, WHITE, timeFont, 2);
-        gfx->setFont(timeFont); gfx->setTextSize(2);
+        gfx->setFont(timeFont); 
+        gfx->setTextSize(2);
         gfx->getTextBounds(timeStr, 0, 0, &tx, &ty, &prev_time_w, &prev_time_h);
         prev_time_y = y_time_top_target;
         strcpy(previousTimeStr, timeStr);
     }
-    if (strcmp(combinedOutputStr, previousFactorStr) != 0) {
-        int left_margin = 4;
-        if (prev_factor_h > 0) { gfx->fillRect(0, y_factor_top_target, w, prev_factor_h, BLACK); }
-        gfx->setFont(factorFont); gfx->setTextSize(1); gfx->setTextColor(WHITE);
-        uint16_t h1; gfx->getTextBounds(combinedOutputStr, 0, 0, &tx, &ty, &tw, &h1);
-        int cursor_y = y_factor_top_target - ty; gfx->setCursor(left_margin, cursor_y); gfx->print(combinedOutputStr);
-        strcpy(previousFactorStr, combinedOutputStr); prev_factor_h = h1;
+    if (showFractals)
+    {
+        int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
+        char factorBuffer[MAX_FACTOR_STR_LEN];
+        primeFactorsToString(timeNum, factorBuffer, sizeof(factorBuffer));
+        char combinedOutputStr[10 + MAX_FACTOR_STR_LEN];
+        snprintf(combinedOutputStr, sizeof(combinedOutputStr), "%06d=%s", timeNum, factorBuffer);
+    
+        if (strcmp(combinedOutputStr, previousFactorStr) != 0) {
+            int left_margin = 4;
+            if (prev_factor_h > 0) { gfx->fillRect(0, y_factor_top_target, w, prev_factor_h, BLACK); }
+            gfx->setFont(factorFont); 
+            gfx->setTextSize(1); 
+            gfx->setTextColor(WHITE);
+            uint16_t h1; gfx->getTextBounds(combinedOutputStr, 0, 0, &tx, &ty, &tw, &h1);
+            int cursor_y = y_factor_top_target - ty; gfx->setCursor(left_margin, cursor_y); gfx->print(combinedOutputStr);
+            strcpy(previousFactorStr, combinedOutputStr); prev_factor_h = h1;
+        }
     }
 }
 
@@ -452,23 +490,129 @@ void centerText(const char *text, int y, uint16_t color, const GFXfont *font, ui
     gfx->print(text);
 }
 
-void handleTouchInput() {
-    if (ts_ptr) {
-        ts_ptr->read();
-        if (ts_ptr->isTouched && ts_ptr->touches > 0) {
-            lastDisplayedTouchX = 480- ts_ptr->points[0].x;//FIXME: I don't know why
-            lastDisplayedTouchY = 480 -ts_ptr->points[0].y;
-            lastTouchMillis = millis();
+// In Helper.cpp
 
-            if (!touchCoordsVisible) {
-                 touchCoordsVisible = true; 
-                 previousTouchCoordsStr[0] = ' ';
-                 previousTouchCoordsStr[1] = '\0';
-            }
-            
-        }
+// In Helper.cpp
+
+void handleTouchInput() {
+    if (!ts_ptr) return;
+
+    // 1. Read hardware state
+    ts_ptr->read();
+    bool isTouchedNow = ts_ptr->isTouched;
+    // bool touchActionTakenThisCall = false; // No longer needed here
+
+    // --- Check if Debounce Cooldown Active ---
+    unsigned long currentMillis = millis(); // Get time once
+    if (currentMillis - lastButtonActionTime < buttonDebounceDelay) {
+        // Still in cooldown from the last button press, ignore new touches
+        return;
     }
+
+    // --- Process Touch only if cooldown is over AND it's a new press ---
+    // (We can simplify slightly: If it's touched now and cooldown is over, process it.
+    // The time delay inherently prevents rapid re-triggering better than the wasTouched flag)
+
+    if (isTouchedNow) {
+        // Get INVERTED coordinates
+        int touchX = 480 - ts_ptr->points[0].x;
+        int touchY = 480 - ts_ptr->points[0].y;
+
+        // --- Update Global Touch Coordinate Display State ---
+        // (This part can still update even if buttons are debounced)
+        lastDisplayedTouchX = touchX;
+        lastDisplayedTouchY = touchY;
+        lastTouchMillis = currentMillis;
+        if (!touchCoordsVisible) {
+            touchCoordsVisible = true;
+            previousTouchCoordsStr[0] = ' '; previousTouchCoordsStr[1] = '\0';
+        }
+
+        // --- Check Buttons (Execute only if cooldown has passed) ---
+        bool buttonPressedThisCheck = false;
+
+        // Check Station Buttons
+        for (int i = 0; i < NUM_STATION_BUTTONS; ++i) {
+            // ... (Calculate btnX, btnY as before) ...
+            int col = i % BUTTON_COLS;
+            int row = i / BUTTON_COLS;
+            int btnX = BUTTON_MARGIN_LEFT + col * (BUTTON_WIDTH + BUTTON_H_SPACE);
+            int btnY = h - BUTTON_MARGIN_BOTTOM - (BUTTON_ROWS - row) * BUTTON_HEIGHT - (BUTTON_ROWS - 1 - row) * BUTTON_V_SPACE;
+
+            if (touchX >= btnX && touchX < (btnX + BUTTON_WIDTH) &&
+                touchY >= btnY && touchY < (btnY + BUTTON_HEIGHT))
+            {
+                Serial.printf("Station Button %d Action Triggered.\n", i);
+                buttonPressedThisCheck = true;
+                lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
+
+                if (activeStationIndex == i) { /* ... Deactivate ... */ 
+                    Serial.println("  Deactivating station.");
+                    activeStationIndex = -1;
+                    audio.stopSong();
+                    drawStationButton(i, false); // Redraw as inactive
+                }
+                else { /* ... Activate ... */ 
+                    Serial.printf("  Activating station: %s\n", station_labels[i]);
+                    int previouslyActive = activeStationIndex;
+                    if (previouslyActive != -1) {
+                        drawStationButton(previouslyActive, false); // Deactivate old one visually
+                    }
+                    activeStationIndex = i;
+                    drawStationButton(i, true); // Redraw new button as active
+
+                    Serial.printf("  Connecting to host: %s\n", station_urls[i]);
+                    if (!audio.connecttohost(station_urls[i])) {
+                            Serial.println("  ERROR: connecttohost failed!");
+                            drawStationButton(i, false); // Revert visual
+                            activeStationIndex = previouslyActive;
+                            if(activeStationIndex != -1) { drawStationButton(activeStationIndex, true); }
+                            // displayMessageScreen("Audio Error", "Connection Failed", RED); delay(2000);
+                    } 
+                    else {
+                        Serial.println("  connecttohost potentially successful.");
+                    }
+                }
+                break;
+            }
+        }
+
+        // Check Volume Buttons
+        if (!buttonPressedThisCheck) {
+            // ... (Calculate volBtnX, volDownBtnY, volUpBtnY as before) ...
+            int volBtnX = w - VOL_BUTTON_MARGIN_RIGHT - VOL_BUTTON_WIDTH;
+            int volDownBtnY = h - BUTTON_MARGIN_BOTTOM - BUTTON_HEIGHT;
+            int volUpBtnY = volDownBtnY - BUTTON_HEIGHT - VOL_BUTTON_V_SPACE;
+
+
+            // Volume Down
+            if (touchX >= volBtnX && touchX < (volBtnX + VOL_BUTTON_WIDTH) &&
+                touchY >= volDownBtnY && touchY < (volDownBtnY + VOL_BUTTON_HEIGHT))
+            {
+                Serial.println("Volume Down Action.");
+                lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
+                int currentVolume = audio.getVolume();
+                if (currentVolume > 0) audio.setVolume(currentVolume - 1);
+                Serial.printf("  New Volume: %d\n", audio.getVolume());
+                buttonPressedThisCheck = true; // Mark as pressed for clarity if needed elsewhere
+            }
+            // Volume Up
+            else if (touchX >= volBtnX && touchX < (volBtnX + VOL_BUTTON_WIDTH) &&
+                     touchY >= volUpBtnY && touchY < (volUpBtnY + VOL_BUTTON_HEIGHT))
+            {
+                 Serial.println("Volume Up Action.");
+                 lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
+                 int currentVolume = audio.getVolume();
+                 if (currentVolume < 21) audio.setVolume(currentVolume + 1);
+                 Serial.printf("  New Volume: %d\n", audio.getVolume());
+                 buttonPressedThisCheck = true; // Mark as pressed
+            }
+        }
+    } // End if (isTouchedNow)
+
+    // No need to explicitly handle release or the old debounce flag
 }
+
 void UpdateTouchCoordsDisplay() {
     if (!gfx) return;
     char currentCoordsStr[20];
@@ -565,7 +709,89 @@ void primeFactorsToString(int n, char* buffer, size_t bufferSize) {
         }
     }
 }
+//---AUDIO
+// --- Button Definitions ---
+const char* station_labels[NUM_STATION_BUTTONS] = {"EGO.FM", "BR3", "ANT", "BR24"}; // Example Labels
+const char* station_urls[NUM_STATION_BUTTONS] = { // Example URLs - REPLACE WITH ACTUAL URLs
+    "http://streams.egofm.de/egoFM-hq/",
+    "http://streams.br.de/bayern3_2.m3u",
+    "http://stream.antenne.de/antenne/stream/mp3", // Example, check format
+    "http://streams.br.de/br24_2.m3u" // Example, check format
+};
+int activeStationIndex = -1; // No station active initially
 
+// Generic function to draw a button's visual appearance
+// Generic function to draw a button's visual appearance
+void drawButtonVisual(int x, int y, int w, int h, const char* label, uint16_t bgColor, uint16_t textColor, const GFXfont* font, uint8_t size) {
+    if (!gfx) return;
+
+    // Draw background
+    gfx->fillRoundRect(x, y, w, h, 5, bgColor);
+
+    // Optional: Draw border (e.g., slightly darker than background or fixed color)
+    // gfx->drawRoundRect(x, y, w, h, 5, DARKGREY); // Example: Dark grey border
+
+    // Draw Label centered
+    if (label && strlen(label) > 0) {
+        int16_t tx, ty; uint16_t tw, th;
+        gfx->setFont(font);
+        gfx->setTextSize(size);
+        gfx->setTextColor(textColor); // <<< Set color BEFORE getTextBounds/print
+
+        // Get text bounds AFTER setting font, size, color
+        gfx->getTextBounds(label, 0, 0, &tx, &ty, &tw, &th);
+
+        // Calculate cursor X position to center horizontally
+        int cursorX = x + (w - tw) / 2 - tx;
+        // Calculate cursor Y position (baseline) to center vertically
+        int cursorY = y + (h - th) / 2 - ty;
+
+        // Prevent text cursor going off-screen (basic check)
+        if (cursorX < 0) cursorX = x; // Align left at least
+        // If cursorY is calculated too high, baseline might be above button top
+        // A safer vertical center approach for baseline: y + h/2 + th/2 - (th + ty) ???
+        // Let's stick with the simpler centering for now.
+
+        gfx->setCursor(cursorX, cursorY);
+        gfx->print(label);
+    }
+}
+
+// Helper function to draw a single station button based on its state
+void drawStationButton(int index, bool isActive) {
+    if (index < 0 || index >= NUM_STATION_BUTTONS) return;
+
+    // Calculate button position (Grid layout, bottom-left aligned)
+    int col = index % BUTTON_COLS;
+    int row = index / BUTTON_COLS;
+    int btnX = BUTTON_MARGIN_LEFT + col * (BUTTON_WIDTH + BUTTON_H_SPACE);
+    // Y calculation starts from bottom edge
+    int btnY = h - BUTTON_MARGIN_BOTTOM - (BUTTON_ROWS - row) * BUTTON_HEIGHT - (BUTTON_ROWS - 1 - row) * BUTTON_V_SPACE;
+
+    uint16_t bgColor = isActive ? COLOR_BUTTON_BG_ACTIVE : COLOR_BUTTON_BG_IDLE;
+    drawButtonVisual(btnX, btnY, BUTTON_WIDTH, BUTTON_HEIGHT,
+                     station_labels[index], bgColor, COLOR_BUTTON_TEXT,
+                     font_freesans18, 1); // Using FreeSans18pt font
+}
+
+// Helper function to draw the volume buttons
+void drawVolumeButtons() {
+    // Calculate positions (Right aligned, vertically aligned with station buttons)
+    int volBtnX = w - VOL_BUTTON_MARGIN_RIGHT - VOL_BUTTON_WIDTH;
+    // Align with bottom row of station buttons
+    int volDownBtnY = h - BUTTON_MARGIN_BOTTOM - BUTTON_HEIGHT;
+    int volUpBtnY = volDownBtnY - BUTTON_HEIGHT - VOL_BUTTON_V_SPACE;
+
+    // Draw Volume Down
+    drawButtonVisual(volBtnX, volDownBtnY, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
+                     VOL_DOWN_LABEL, COLOR_BUTTON_BG_IDLE, COLOR_BUTTON_TEXT,
+                     font_freesansbold18, 2); // Larger font for +/-
+
+    // Draw Volume Up
+    drawButtonVisual(volBtnX, volUpBtnY, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
+                     VOL_UP_LABEL, COLOR_BUTTON_BG_IDLE, COLOR_BUTTON_TEXT,
+                     font_freesansbold18, 2); // Larger font for +/-
+}
 
 
 

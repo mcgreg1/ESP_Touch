@@ -2,8 +2,8 @@
 #define CUSTOMDEF_H
 
 
-#define TOUCH_COORD_AREA_X 400
-#define TOUCH_COORD_AREA_Y 460
+#define TOUCH_COORD_AREA_X 1
+#define TOUCH_COORD_AREA_Y 1
 #define TOUCH_COORD_AREA_W 80 // Adjust width as needed (e.g., for "T:480,480")
 #define TOUCH_COORD_AREA_H 12 // Adjust height as needed (default font size 1 height is ~8px + padding)
 // --- Library Includes ---
@@ -88,10 +88,12 @@ extern unsigned long lastNtpSyncMillis;
 extern ClockState currentClockState;
 extern ClockState lastClockState;
 extern bool firstDisplayDone;
-
+extern bool wasTouchedPreviously;
 // German days/months
 extern const char *Wochentage[];
 extern const char *Monate[];
+extern unsigned long lastButtonActionTime;
+extern const unsigned long buttonDebounceDelay; // Make const accessible if needed elsewhere
 
 // Colors
 extern uint16_t RGB565_LIGHT_GREY;
@@ -116,6 +118,40 @@ extern uint16_t prev_touch_coords_h;
 extern const GFXfont *font_freesansbold18;
 extern const GFXfont *font_freesans18;
 extern const GFXfont *font_freesans12;
+//Radio def
+
+#define NUM_STATION_BUTTONS 4
+#define BUTTON_COLS 2
+#define BUTTON_ROWS 2
+#define BUTTON_WIDTH (w / 3) // Width is 1/3 of screen
+#define BUTTON_HEIGHT 60     // Fixed height (adjust as needed)
+#define BUTTON_H_SPACE 10    // Horizontal space between buttons
+#define BUTTON_V_SPACE 10    // Vertical space between buttons
+#define BUTTON_MARGIN_LEFT 10 // Margin from left edge
+#define BUTTON_MARGIN_BOTTOM 10 // Margin from bottom edge
+
+// Define placeholder labels and corresponding stream URLs
+extern const char* station_labels[NUM_STATION_BUTTONS];
+extern const char* station_urls[NUM_STATION_BUTTONS];
+
+extern int activeStationIndex; // Index of the active station button (-1 for none)
+extern bool touchRegisteredThisPress;
+
+// Volume Buttons
+#define VOL_BUTTON_WIDTH 50
+#define VOL_BUTTON_HEIGHT BUTTON_HEIGHT // Same height as station buttons
+#define VOL_BUTTON_V_SPACE BUTTON_V_SPACE
+#define VOL_BUTTON_MARGIN_RIGHT 10
+#define VOL_UP_LABEL "+"
+#define VOL_DOWN_LABEL "-"
+
+// --- Global Variables (Declarations) ---
+// ... existing externs ...
+extern uint16_t COLOR_BUTTON_BG_IDLE;   // Color for inactive button
+extern uint16_t COLOR_BUTTON_BG_ACTIVE; // Color for active button
+extern uint16_t COLOR_BUTTON_TEXT;      // Color for button text
+
+
 
 // Standard GFX Colors (useful defines)
 #define BLACK 0x0000
