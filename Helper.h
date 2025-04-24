@@ -15,6 +15,7 @@ bool InitWifiManager();
 bool InitSD();
 void InitAudio();
 void initializeColors(); 
+void initializeAlarm();
 
 // NTP
 bool syncNTPTime();
@@ -33,6 +34,8 @@ void centerText(const char *text, int y, uint16_t color, const GFXfont *font, ui
 void drawButtonVisual(int x, int y, int w, int h, const char* label, uint16_t bgColor, uint16_t textColor, const GFXfont* font, uint8_t size);
 // Input Handling
 void handleTouchInput();
+void handleAlarmAreaTouch(); // <<< NEW: Placeholder for alarm area touch action
+void displaySetAlarmScreen(const struct tm* currentAlarmTime);
 
 // Time & Math
 void incrementLocalTime();

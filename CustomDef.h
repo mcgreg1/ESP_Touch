@@ -70,6 +70,7 @@ enum ClockState {
     STATE_RUNNING,
     STATE_WIFI_NTP_FAILED,
     STATE_PLAY_AUDIO,
+    STATE_SETTING_ALARM,
     NUM_CLOCK_STATES        // just a counter of the total states, leave it last!!!      
 };
 
@@ -174,4 +175,68 @@ extern uint16_t COLOR_BUTTON_TEXT;      // Color for button text
 #define GREENYELLOW 0xAFE5
 #define PINK 0xF81F // Same as MAGENTA
 
+// Alarm State
+extern struct tm alarmTime;       // Holds the HH:MM for the alarm
+extern bool isAlarmSet;           // Is the alarm currently active? (Keep for later)
+extern bool needsFullRedraw;
+extern bool alarmJustTriggered;
+
+#define ALARM_LABEL "Alarm: "        // Text prefix
+#define ALARM_AREA_PADDING 5       // Pixels around text inside rectangle
+#define ALARM_AREA_MARGIN_RIGHT 10 // Pixels from right edge of screen
+#define ALARM_TIME_Y_OFFSET 15      // Space below factor line
 #endif // CUSTOMDEF_H
+
+// --- Touch Zones & Dimensions ---
+
+// General Zones (used by Set Time and Set Alarm)
+#define HOUR_TOUCH_X      (w * 0.1) // Base X for Hour adjust zone
+#define HOUR_TOUCH_W      (w * 0.3) // Base Width for Hour adjust zone
+#define MINUTE_TOUCH_X    (w * 0.6) // Base X for Minute adjust zone
+#define MINUTE_TOUCH_W    (w * 0.3) // Base Width for Minute adjust zone
+#define SETTING_TOUCH_ZONE_H  60    // Common Height for HH/MM touch zones in setting screens
+
+// Offsets for placing touch zones relative to displayed time in setting screens
+#define ALARM_SET_Y_OFFSET  20      // Offset below alarm time display in SET_ALARM screen
+
+// OK Button (Common for Set Time/Alarm screens)
+#define OK_BUTTON_W       100
+#define OK_BUTTON_H       50
+#define OK_BUTTON_X       ((w - OK_BUTTON_W) / 2) // Centered X
+
+// Alarm Display Area (Main Screen - coordinates/dimensions for hitting the alarm display itself)
+#define ALARM_TIME_Y_OFFSET 15      // Approx space below factor line on main screen
+#define ALARM_TIME_TOUCH_W (w * 0.4) // Approx Width for touching the time HH:MM on main screen
+#define ALARM_ICON_WIDTH   48       // Use define from alarm_icon.h if different
+#define ALARM_ICON_HEIGHT  48       // Use define from alarm_icon.h if different
+#define ALARM_ICON_X_OFFSET 10      // Space between displayed alarm time and icon
+#define ALARM_ICON_TOUCH_W (ALARM_ICON_WIDTH + 10) // Touch area width around icon
+
+// Alarm Setting Screen Specific Touch Zones (can reuse base defines)
+#define ALARM_SET_HOUR_X    HOUR_TOUCH_X
+#define ALARM_SET_HOUR_W    HOUR_TOUCH_W
+#define ALARM_SET_MINUTE_X  MINUTE_TOUCH_X
+#define ALARM_SET_MINUTE_W  MINUTE_TOUCH_W
+#define ALARM_SET_TOUCH_H   SETTING_TOUCH_ZONE_H // Use the common height
+
+// === END OF ADDED/RESTORED DEFINES ===
+
+
+// --- Global Variables (Declarations) ---
+// ... existing externs ...
+extern uint16_t COLOR_OK_BUTTON_GREEN; // Ensure this is declared if used
+
+// --- Touch Zones for ALARM SETTING Screen (Specific Coordinates) ---
+#define ALARM_SET_H_X1 150 // Hour zone top-left X
+#define ALARM_SET_H_Y1 175 // Hour zone top-left Y
+#define ALARM_SET_H_X2 230 // Hour zone bottom-right X
+#define ALARM_SET_H_Y2 230 // Hour zone bottom-right Y
+
+#define ALARM_SET_M_X1 250 // Minute zone top-left X
+#define ALARM_SET_M_Y1 175 // Minute zone top-left Y (Corrected to match Hours Y1 based on usual layout)
+#define ALARM_SET_M_X2 330 // Minute zone bottom-right X
+#define ALARM_SET_M_Y2 230 // Minute zone bottom-right Y
+
+extern unsigned long alarmAreaTouchStartTime; // millis() when touch in alarm area started
+extern bool alarmAreaTouchInProgress;         // Is touch currently held down in the area?
+extern const unsigned long alarmLongPressDuration; // Duration for long press
