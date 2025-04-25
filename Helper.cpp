@@ -423,45 +423,21 @@ void ShowStaticFields(const struct tm* currentTime) {
     gfx->getTextBounds("00:00", 0, 0, &tx, &ty, &tw, &alarmTimeHeight);
     uint16_t timeW = tw;
 
-    uint16_t maxTextW = max(labelW, timeW); // Max width of label or time
-    int alarmLineSpacing = 2; // Space between label and time text
-
-    // Calculate Rectangle dimensions
-    int rectW = maxTextW + (ALARM_AREA_PADDING * 2);
-    // Correct height calculation: TopPad + LabelH + Space + TimeH + BottomPad
-    int rectH = (ALARM_AREA_PADDING * 2) + alarmLabelHeight + alarmLineSpacing + alarmTimeHeight; // <<< FIX: Correct Height
-
-    // Calculate Y position for the TOP edge of the alarm RECTANGLE
-    int y_clock_top_approx = y_date + mainFontHeight + lineSpacing * 2;
-    int y_factor_top_approx = y_clock_top_approx + clockHeightApprox + lineSpacing;
-    int y_alarm_rect_top = y_factor_top_approx + factorHeight + 15; // Space below factors
-
-    // Calculate Rectangle top-left X for right alignment
-    int rectX = w - ALARM_AREA_MARGIN_RIGHT - rectW;
-    int rectY = y_alarm_rect_top;
-
     // --- Draw Rectangle ---
-    gfx->drawRect(rectX, rectY, rectW, rectH, COLOR_ALARM_TIME_INACTIVE);
+    gfx->drawRect(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, COLOR_ALARM_TIME_INACTIVE);
 
     // --- Draw "Alarm:" Text ---
     gfx->setFont(alarmFont); gfx->setTextSize(1); gfx->setTextColor(COLOR_ALARM_TIME_INACTIVE);
     gfx->getTextBounds(ALARM_LABEL, 0, 0, &tx, &ty, &tw, &alarmLabelHeight);
-    int labelCursorX = rectX + (rectW - tw) / 2 - tx; // Center label text
-    int labelCursorY = rectY + ALARM_AREA_PADDING - ty; // Align top edge + padding
-    gfx->setCursor(labelCursorX, labelCursorY);
+    gfx->setCursor(ALARM_RECT_X+3, ALARM_RECT_Y+ALARM_RECT_H/2-1);
     gfx->print(ALARM_LABEL);
 
     // --- Draw "HH:MM" Text ---
     char alarmStrTime[6];
     snprintf(alarmStrTime, sizeof(alarmStrTime), "%02d:%02d", alarmTime.tm_hour, alarmTime.tm_min);
     gfx->getTextBounds(alarmStrTime, 0, 0, &tx, &ty, &tw, &alarmTimeHeight);
-    int timeCursorX = rectX + (rectW - tw) / 2 - tx; // Center time text
-    // Position below the label's calculated top edge + label height + spacing
-    int timeCursorY = (labelCursorY + ty) + alarmLabelHeight + alarmLineSpacing - ty; // Align top edge below label + spacing
-    gfx->setCursor(timeCursorX, timeCursorY);
+    gfx->setCursor(ALARM_RECT_X+10, ALARM_RECT_Y+ALARM_RECT_H-5);
     gfx->print(alarmStrTime);
-
-    Serial.printf("  Drew initial alarm: %s %s Rect: X:%d Y:%d W:%d H:%d\n", ALARM_LABEL, alarmStrTime, rectX, rectY, rectW, rectH);
 
     // --- Draw Buttons (Bottom Part) --- <<< ADDED BACK
     Serial.println("  Drawing initial button states...");
@@ -474,115 +450,6 @@ void ShowStaticFields(const struct tm* currentTime) {
     Serial.println("FUNCTION END: ShowStaticFields");
 }
 
-
-void displayClock(const struct tm* currentTime, bool showFractals) {
-     if (!gfx || currentTime == NULL) return;
-     if (currentClockState != STATE_RUNNING) return; // Only draw if running normally
-
-    static char previousTimeStr[9] = "";
-    static int16_t prev_time_y = -1;
-    static uint16_t prev_time_w = 0, prev_time_h = 0;
-    static char previousFactorStr[MAX_FACTOR_STR_LEN] = "";
-    static uint16_t prev_factor_h = 0;
-
-    const GFXfont *timeFont = font_freesansbold18;
-    const GFXfont *factorFont = font_freesans18;
-
-    // Simplified Layout (Assume static fields take up ~60 pixels height)
-    const int static_area_height = 60;
-    int16_t tx, ty; uint16_t tw, timeHeight, factorFontHeight;
-    gfx->setFont(timeFont); 
-    gfx->setTextSize(2);
-    gfx->getTextBounds("00:00:00", 0, 0, &tx, &ty, &tw, &timeHeight);
-    gfx->setFont(factorFont); 
-    gfx->setTextSize(1);
-    gfx->getTextBounds("0", 0, 0, &tx, &ty, &tw, &factorFontHeight);
-    const int lineSpacing = 50;
-    int y_time_top_target = static_area_height + lineSpacing; // Time below static area
-    int y_factor_top_target = y_time_top_target + timeHeight + lineSpacing;
-
-    char timeStr[9];
-    snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", currentTime->tm_hour, currentTime->tm_min, currentTime->tm_sec);
-
-
-    if (strcmp(timeStr, previousTimeStr) != 0) {
-        if (prev_time_w > 0) { gfx->fillRect((w - prev_time_w) / 2, prev_time_y, prev_time_w, prev_time_h, BLACK); }
-        centerText(timeStr, y_time_top_target, WHITE, timeFont, 2);
-        gfx->setFont(timeFont); 
-        gfx->setTextSize(2);
-        gfx->getTextBounds(timeStr, 0, 0, &tx, &ty, &prev_time_w, &prev_time_h);
-        prev_time_y = y_time_top_target;
-        strcpy(previousTimeStr, timeStr);
-    }
-    if (showFractals)
-    {
-        int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
-        char factorBuffer[MAX_FACTOR_STR_LEN];
-        primeFactorsToString(timeNum, factorBuffer, sizeof(factorBuffer));
-        char combinedOutputStr[10 + MAX_FACTOR_STR_LEN];
-        snprintf(combinedOutputStr, sizeof(combinedOutputStr), "%06d=%s", timeNum, factorBuffer);
-    
-        if (strcmp(combinedOutputStr, previousFactorStr) != 0) {
-            int left_margin = 4;
-            if (prev_factor_h > 0) { gfx->fillRect(0, y_factor_top_target, w, prev_factor_h, BLACK); }
-            gfx->setFont(factorFont); 
-            gfx->setTextSize(1); 
-            gfx->setTextColor(WHITE);
-            uint16_t h1; gfx->getTextBounds(combinedOutputStr, 0, 0, &tx, &ty, &tw, &h1);
-            int cursor_y = y_factor_top_target - ty; gfx->setCursor(left_margin, cursor_y); gfx->print(combinedOutputStr);
-            strcpy(previousFactorStr, combinedOutputStr); prev_factor_h = h1;
-        }
-    }
-}
-
-
-void displayMessageScreen(const char* line1, const char* line2, uint16_t color) {
-    Serial.printf("FUNCTION: displayMessageScreen - L1: %s, L2: %s\n", line1, line2 ? line2 : "NULL");
-    if (!gfx) return;
-    gfx->fillScreen(BLACK);
-    gfx->setFont(NULL);
-    gfx->setTextSize(2);
-    gfx->setTextColor(color);
-
-    int16_t x1, y1;
-    uint16_t w1, h1, w2 = 0, h2 = 0;
-    int lineSpacing = 10;
-
-    gfx->getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
-    if (line2) gfx->getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
-
-    int totalDrawHeight = h1 + (line2 ? (h2 + lineSpacing) : 0);
-    int startY = (h - totalDrawHeight) / 2;
-    if (startY < 0) startY = 0;
-
-    centerText(line1, startY, color, NULL, 2);
-    if (line2) centerText(line2, startY + h1 + lineSpacing, color, NULL, 2);
-
-    Serial.println("FUNCTION END: displayMessageScreen");
-}
-
-void centerText(const char *text, int y, uint16_t color, const GFXfont *font, uint8_t size) {
-    if (!gfx || !text || strlen(text) == 0) return;
-
-    int16_t x1, y1;
-    uint16_t text_w, text_h;
-
-    gfx->setFont(font);
-    gfx->setTextSize(size);
-    gfx->getTextBounds(text, 0, 0, &x1, &y1, &text_w, &text_h);
-
-    int cursor_x = (w - text_w) / 2 - x1;
-    int cursor_y = y - y1;
-    if (cursor_x < 0) cursor_x = 0;
-
-    gfx->setCursor(cursor_x, cursor_y);
-    gfx->setTextColor(color);
-    gfx->print(text);
-}
-
-// In Helper.cpp
-
-// In Helper.cpp
 
 void handleTouchInput() {
     if (!ts_ptr) return;
@@ -703,37 +570,16 @@ void handleTouchInput() {
         }
 
         // --- Check Alarm Area Touch ---
-                // Recalculate rectangle bounds to check against
-                const GFXfont *alarmFont = font_freesans18;
-                int16_t tx, ty; uint16_t tw, labelW, timeW, alarmLabelHeight, alarmTimeHeight;
-                gfx->setFont(alarmFont); gfx->setTextSize(1);
-                gfx->getTextBounds(ALARM_LABEL, 0, 0, &tx, &ty, &labelW, &alarmLabelHeight);
-                gfx->getTextBounds("00:00", 0, 0, &tx, &ty, &timeW, &alarmTimeHeight);
-                uint16_t maxTextW = max(labelW, timeW);
-                int alarmLineSpacing = 2;
-                int rectW = maxTextW + (ALARM_AREA_PADDING * 2);
-                int rectH = alarmLabelHeight + alarmTimeHeight + alarmLineSpacing + (ALARM_AREA_PADDING * 2);
-                int rectX = w - ALARM_AREA_MARGIN_RIGHT - rectW;
-                // Recalculate Y (ensure consistency with ShowStaticFields)
-                uint16_t clockHeightApprox, factorHeight;
-                gfx->setFont(font_freesansbold18); gfx->setTextSize(2); gfx->getTextBounds("00:00:00",0,0,&tx,&ty,&tw,&clockHeightApprox);
-                gfx->setFont(font_freesans18); gfx->setTextSize(1); gfx->getTextBounds("0",0,0,&tx,&ty,&tw,&factorHeight);
-                const int lineSpacing = 10; const int time_factor_spacing = 15; const int factor_alarm_spacing = ALARM_TIME_Y_OFFSET;
-                const int static_area_height = 60;
-                int y_time_top_target = static_area_height + lineSpacing * 2;
-                int y_factor_top_target = y_time_top_target + clockHeightApprox + time_factor_spacing;
-                int y_alarm_rect_top = y_factor_top_target + factorHeight + factor_alarm_spacing;
-                int rectY = y_alarm_rect_top;
 
-                if (touchX >= rectX && touchX < (rectX + rectW) &&
-                    touchY >= rectY && touchY < (rectY + rectH))
-                {
-                    handleAlarmAreaTouch(); // Call the dedicated handler
-                    lastButtonActionTime = currentMillis; // Start debounce
-                }
+        if (touchX >= ALARM_RECT_X && touchX < (ALARM_RECT_X + ALARM_RECT_W) &&
+            touchY >= ALARM_RECT_Y && touchY < (ALARM_RECT_Y + ALARM_RECT_H))
+        {
+            handleAlarmAreaTouch(); // Call the dedicated handler
+            lastButtonActionTime = currentMillis; // Start debounce
+        }
         }//state is running
         else if (currentClockState == STATE_SETTING_ALARM) {
-Serial.println("Checking touches in SETTING_ALARM state");
+            Serial.println("Checking touches in SETTING_ALARM state");
 
             // --- Calculate OK Button's Dynamic Y Position ---
             // (Repeat minimal layout calculation needed for OK button Y)
@@ -787,6 +633,108 @@ Serial.println("Checking touches in SETTING_ALARM state");
     }
 }
 
+void displayClock(const struct tm* currentTime, bool showFractals) {
+     if (!gfx || currentTime == NULL) return;
+     if (currentClockState != STATE_RUNNING) return; // Only draw if running normally
+
+    static char previousTimeStr[9] = "";
+    static int16_t prev_time_y = -1;
+    static uint16_t prev_time_w = 0, prev_time_h = 0;
+    static char previousFactorStr[MAX_FACTOR_STR_LEN] = "";
+    static uint16_t prev_factor_h = 0;
+
+    const GFXfont *timeFont = font_freesansbold18;
+    const GFXfont *factorFont = font_freesans18;
+
+    char timeStr[9];
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", currentTime->tm_hour, currentTime->tm_min, currentTime->tm_sec);
+
+
+    if (strcmp(timeStr, previousTimeStr) != 0) {
+            gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, BLACK); 
+            Serial.println("REDAEAQWQAWQWQ");
+            strcpy(previousTimeStr, timeStr);
+        gfx->setCursor(CLOCK_X, CLOCK_Y);
+        gfx->setTextColor(WHITE);
+        
+        //centerText(timeStr, y_time_top_target, WHITE, timeFont, 2);
+        gfx->setFont(timeFont); 
+        gfx->setTextSize(2);
+        gfx->print(timeStr);
+    }
+    if (showFractals)
+    {
+        int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
+        char factorBuffer[MAX_FACTOR_STR_LEN];
+        primeFactorsToString(timeNum, factorBuffer, sizeof(factorBuffer));
+        char combinedOutputStr[10 + MAX_FACTOR_STR_LEN];
+        snprintf(combinedOutputStr, sizeof(combinedOutputStr), "%06d=%s", timeNum, factorBuffer);
+    
+        if (strcmp(combinedOutputStr, previousFactorStr) != 0) {
+            int left_margin = 4;
+            if (prev_factor_h > 0) { 
+                gfx->fillRect(0, FRACTAL_Y, w, 40, BLACK); }
+            gfx->setFont(factorFont); 
+            gfx->setTextSize(1); 
+            gfx->setTextColor(WHITE);
+            uint16_t h1; 
+            gfx->setCursor(left_margin, FRACTAL_Y); 
+            gfx->print(combinedOutputStr);
+            strcpy(previousFactorStr, combinedOutputStr); prev_factor_h = h1;
+        }
+    }
+}
+
+
+void displayMessageScreen(const char* line1, const char* line2, uint16_t color) {
+    Serial.printf("FUNCTION: displayMessageScreen - L1: %s, L2: %s\n", line1, line2 ? line2 : "NULL");
+    if (!gfx) return;
+    gfx->fillScreen(BLACK);
+    gfx->setFont(NULL);
+    gfx->setTextSize(2);
+    gfx->setTextColor(color);
+
+    int16_t x1, y1;
+    uint16_t w1, h1, w2 = 0, h2 = 0;
+    int lineSpacing = 10;
+
+    gfx->getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
+    if (line2) gfx->getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
+    int totalDrawHeight = h1 + (line2 ? (h2 + lineSpacing) : 0);
+    int startY = (h - totalDrawHeight) / 2;
+    if (startY < 0) startY = 0;
+
+    centerText(line1, startY, color, NULL, 2);
+    if (line2) centerText(line2, startY + h1 + lineSpacing, color, NULL, 2);
+
+    Serial.println("FUNCTION END: displayMessageScreen");
+}
+
+void centerText(const char *text, int y, uint16_t color, const GFXfont *font, uint8_t size) {
+    if (!gfx || !text || strlen(text) == 0) return;
+
+    int16_t x1, y1;
+    uint16_t text_w, text_h;
+
+    gfx->setFont(font);
+    gfx->setTextSize(size);
+    gfx->getTextBounds(text, 0, 0, &x1, &y1, &text_w, &text_h);
+
+    int cursor_x = (w - text_w) / 2 - x1;
+    int cursor_y = y - y1;
+    if (cursor_x < 0) cursor_x = 0;
+
+    gfx->setCursor(cursor_x, cursor_y);
+    gfx->setTextColor(color);
+    gfx->print(text);
+}
+
+// In Helper.cpp
+
+// In Helper.cpp
+
+
 // --- Placeholder Function for Alarm Area Touch ---
 void handleAlarmAreaTouch() {
     Serial.println("FUNCTION: handleAlarmAreaTouch");
@@ -836,6 +784,7 @@ void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
     centerText(alarmSet, y_alarm_set_time_top, WHITE, mainFont, 2);
     centerText("Alarmzeit einstellen", y_prompt_top, RGB565_LIGHT_GREY, promptFont, 1);
     drawButtonVisual(OK_BUTTON_X, y_ok_button_top, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
+    drawButtonVisual(OK_BUTTON_X, y_ok_button_top+100, OK_BUTTON_W, OK_BUTTON_H, "ALARM", GREEN, BLACK, buttonFont, 1);
 
 
     // --- Draw Touch Zone Indicators (CORRECTED Y POSITION) ---
@@ -918,10 +867,6 @@ void incrementLocalTime() {
     localtime_r(&currentTimeSec, &timeinfo);
 }
 
-int calculateFutureTimeNum(int h, int m, int s, int add) {
-    return 0; // Placeholder
-}
-
 void primeFactorsToString(int n, char* buffer, size_t bufferSize) {
     if (!buffer || bufferSize == 0) return;
 
@@ -975,34 +920,21 @@ int activeStationIndex = -1; // No station active initially
 // Generic function to draw a button's visual appearance
 void drawButtonVisual(int x, int y, int w, int h, const char* label, uint16_t bgColor, uint16_t textColor, const GFXfont* font, uint8_t size) {
     if (!gfx) return;
-
     // Draw background
     gfx->fillRoundRect(x, y, w, h, 5, bgColor);
 
     // Optional: Draw border (e.g., slightly darker than background or fixed color)
     // gfx->drawRoundRect(x, y, w, h, 5, DARKGREY); // Example: Dark grey border
-
     // Draw Label centered
     if (label && strlen(label) > 0) {
         int16_t tx, ty; uint16_t tw, th;
         gfx->setFont(font);
         gfx->setTextSize(size);
         gfx->setTextColor(textColor); // <<< Set color BEFORE getTextBounds/print
-
-        // Get text bounds AFTER setting font, size, color
         gfx->getTextBounds(label, 0, 0, &tx, &ty, &tw, &th);
-
-        // Calculate cursor X position to center horizontally
         int cursorX = x + (w - tw) / 2 - tx;
-        // Calculate cursor Y position (baseline) to center vertically
         int cursorY = y + (h - th) / 2 - ty;
-
-        // Prevent text cursor going off-screen (basic check)
         if (cursorX < 0) cursorX = x; // Align left at least
-        // If cursorY is calculated too high, baseline might be above button top
-        // A safer vertical center approach for baseline: y + h/2 + th/2 - (th + ty) ???
-        // Let's stick with the simpler centering for now.
-
         gfx->setCursor(cursorX, cursorY);
         gfx->print(label);
     }

@@ -91,7 +91,7 @@ void loop() {
     }
     if (currentClockState==STATE_RUNNING)
     {
-        if (needsFullRedraw) {
+        if (needsFullRedraw) {//TODO:also when day changes!!!
             gfx->fillScreen(BLACK);
             ShowStaticFields(&timeinfo);
             needsFullRedraw = false;

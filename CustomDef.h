@@ -240,3 +240,27 @@ extern uint16_t COLOR_OK_BUTTON_GREEN; // Ensure this is declared if used
 extern unsigned long alarmAreaTouchStartTime; // millis() when touch in alarm area started
 extern bool alarmAreaTouchInProgress;         // Is touch currently held down in the area?
 extern const unsigned long alarmLongPressDuration; // Duration for long press
+
+
+
+//---------------fixed size
+
+
+
+
+#define ALARM_RECT_X 363
+#define ALARM_RECT_Y 194
+#define ALARM_RECT_W 107
+#define ALARM_RECT_H 63
+
+#define CLOCK_X 100
+#define CLOCK_Y 140
+#define CLOCK_RECT_X 100
+#define CLOCK_RECT_Y 90
+#define CLOCK_RECT_W 270
+#define CLOCK_RECT_H 60
+
+#define FRACTAL_X 2
+#define FRACTAL_Y 210
+
+
