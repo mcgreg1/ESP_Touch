@@ -56,7 +56,7 @@ void loop() {
     bool isTouchedNow = false;
     int currentTouchX = -1, currentTouchY = -1;
     handleTouchInput();
-    audio.loop();
+    audio_ptr->loop();
     
 // --- Periodic NTP Re-sync Check ---
     // Check if time has been synchronized at least once and the interval has passed
@@ -73,11 +73,12 @@ void loop() {
         if (timeSynchronized) {
             // --- Increment Local Time ---
             time_t currentTimeSec = mktime(&timeinfo); // Convert struct tm to seconds since epoch
+            int dayBeforeIncrement = timeinfo.tm_mday;
             currentTimeSec += 1;                       // Add one second
             localtime_r(&currentTimeSec, &timeinfo);   // Convert back to struct tm (thread-safe), updating global timeinfo
+            if (timeinfo.tm_mday != dayBeforeIncrement) //daychange
+                needsFullRedraw = true;
 
-            // --- Update Dynamic Parts of Display ---
-            // This function now handles partial updates for time and factors
             displayClock(&timeinfo);
         }
     }

@@ -43,7 +43,7 @@ extern const long gmtOffset_sec;
 extern const int daylightOffset_sec;
 extern const long ntpSyncInterval;
 
-extern Audio audio;
+extern Audio *audio_ptr;
 // --- Touch Screen Pin Configuration ---
 #define TOUCH_GT911_SDA 19
 #define TOUCH_GT911_SCL 45
@@ -203,6 +203,7 @@ extern bool alarmJustTriggered;
 #define OK_BUTTON_W       100
 #define OK_BUTTON_H       50
 #define OK_BUTTON_X       ((w - OK_BUTTON_W) / 2) // Centered X
+#define OK_BUTTON_Y       280
 
 // Alarm Display Area (Main Screen - coordinates/dimensions for hitting the alarm display itself)
 #define ALARM_TIME_Y_OFFSET 15      // Approx space below factor line on main screen
@@ -232,7 +233,7 @@ extern uint16_t COLOR_OK_BUTTON_GREEN; // Ensure this is declared if used
 #define ALARM_SET_H_X2 230 // Hour zone bottom-right X
 #define ALARM_SET_H_Y2 230 // Hour zone bottom-right Y
 
-#define ALARM_SET_M_X1 250 // Minute zone top-left X
+#define ALARM_SET_M_X1 248 // Minute zone top-left X
 #define ALARM_SET_M_Y1 175 // Minute zone top-left Y (Corrected to match Hours Y1 based on usual layout)
 #define ALARM_SET_M_X2 330 // Minute zone bottom-right X
 #define ALARM_SET_M_Y2 230 // Minute zone bottom-right Y

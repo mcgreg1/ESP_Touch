@@ -74,7 +74,7 @@ bool touchRegisteredThisPress = false;
 bool wasTouchedPreviously = false;
 
 unsigned long lastButtonActionTime = 0; // Stores millis() when a button was last acted upon
-const unsigned long buttonDebounceDelay = 250; // Cooldown in milliseconds (adjust as needed)
+const unsigned long buttonDebounceDelay = 400; // Cooldown in milliseconds (adjust as needed)
 
 // Font pointers
 const GFXfont *font_freesansbold18 = &FreeSansBold18pt7b;
@@ -86,7 +86,7 @@ Arduino_DataBus *bus = nullptr;
 Arduino_ESP32RGBPanel *rgbpanel = nullptr;
 Arduino_RGB_Display *gfx = nullptr;
 TAMC_GT911 *ts_ptr = nullptr;
-Audio audio;
+Audio *audio_ptr = nullptr;
 int32_t w = 0; // Defined here, set in InitDisplay
 int32_t h = 0; // Defined here, set in InitDisplay
 
@@ -211,7 +211,7 @@ void InstantiateGfxAndTouchObjects() {
     // Instantiate Display Objects
     bus = new Arduino_SWSPI( GFX_NOT_DEFINED, 39, 48, 47, GFX_NOT_DEFINED );
     rgbpanel = new Arduino_ESP32RGBPanel( 18, 17, 16, 21, 4, 5, 6, 7, 15, 8, 20, 3, 46, 9, 10, 11, 12, 13, 14, 0,
-        1, 10, 8, 50, 1, 10, 8, 20, 0, 12000000, false, 0, 0, 0);
+        1, 10, 8, 50, 1, 10, 8, 20, 0, /*12000000*/6000000, false, 0, 0, 0);
     gfx = new Arduino_RGB_Display( 480, 480, rgbpanel, 0, true, bus, GFX_NOT_DEFINED,
         custom_st7701_init_operations, custom_st7701_init_operations_len);
 
@@ -276,9 +276,16 @@ bool InitSD() {
 }
 
 void InitAudio() {
-  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-  audio.setVolume(5);//FIXME: remember the last audio
-  Serial.println("Audio Initialized!");
+    if (!audio_ptr)
+    {
+        audio_ptr = new Audio();
+        Serial.println("  Setting audio task core to 0...");
+        audio_ptr->setAudioTaskCore(0); 
+        audio_ptr->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+        audio_ptr->setVolume(5);//FIXME: remember the last audio
+        Serial.println("Audio Initialized!");
+    }
+
 }
 
 void initializeColors() {
@@ -509,7 +516,7 @@ void handleTouchInput() {
                 if (activeStationIndex == i) { /* ... Deactivate ... */ 
                     Serial.println("  Deactivating station.");
                     activeStationIndex = -1;
-                    audio.stopSong();
+                    audio_ptr->stopSong();
                     drawStationButton(i, false); // Redraw as inactive
                 }
                 else { /* ... Activate ... */ 
@@ -522,7 +529,7 @@ void handleTouchInput() {
                     drawStationButton(i, true); // Redraw new button as active
 
                     Serial.printf("  Connecting to host: %s\n", station_urls[i]);
-                    if (!audio.connecttohost(station_urls[i])) {
+                    if (!audio_ptr->connecttohost(station_urls[i])) {
                             Serial.println("  ERROR: connecttohost failed!");
                             drawStationButton(i, false); // Revert visual
                             activeStationIndex = previouslyActive;
@@ -551,9 +558,9 @@ void handleTouchInput() {
             {
                 Serial.println("Volume Down Action.");
                 lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
-                int currentVolume = audio.getVolume();
-                if (currentVolume > 0) audio.setVolume(currentVolume - 1);
-                Serial.printf("  New Volume: %d\n", audio.getVolume());
+                int currentVolume = audio_ptr->getVolume();
+                if (currentVolume > 0) audio_ptr->setVolume(currentVolume - 1);
+                Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
                 buttonPressedThisCheck = true; // Mark as pressed for clarity if needed elsewhere
             }
             // Volume Up
@@ -562,9 +569,9 @@ void handleTouchInput() {
             {
                  Serial.println("Volume Up Action.");
                  lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
-                 int currentVolume = audio.getVolume();
-                 if (currentVolume < 21) audio.setVolume(currentVolume + 1);
-                 Serial.printf("  New Volume: %d\n", audio.getVolume());
+                 int currentVolume = audio_ptr->getVolume();
+                 if (currentVolume < 21) audio_ptr->setVolume(currentVolume + 1);
+                 Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
                  buttonPressedThisCheck = true; // Mark as pressed
             }
         }
@@ -651,8 +658,8 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
 
 
     if (strcmp(timeStr, previousTimeStr) != 0) {
-            gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, BLACK); 
-            Serial.println("REDAEAQWQAWQWQ");
+            gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H+60, BLACK); 
+            //Serial.println("REDAEAQWQAWQWQ");
             strcpy(previousTimeStr, timeStr);
         gfx->setCursor(CLOCK_X, CLOCK_Y);
         gfx->setTextColor(WHITE);
@@ -661,6 +668,13 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
         gfx->setFont(timeFont); 
         gfx->setTextSize(2);
         gfx->print(timeStr);
+        
+        //show uptime
+        gfx->setTextSize(1);
+        gfx->setCursor(CLOCK_X, CLOCK_Y+40);
+        char uptimeStr[16];
+        snprintf(uptimeStr, sizeof(uptimeStr), "Uptime %d min.", millis()/1000/60);
+        gfx->print(uptimeStr);
     }
     if (showFractals)
     {
@@ -783,8 +797,9 @@ void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
     char alarmSet[6]; snprintf(alarmSet, sizeof(alarmSet), "%02d:%02d", currentAlarmTime->tm_hour, currentAlarmTime->tm_min);
     centerText(alarmSet, y_alarm_set_time_top, WHITE, mainFont, 2);
     centerText("Alarmzeit einstellen", y_prompt_top, RGB565_LIGHT_GREY, promptFont, 1);
-    drawButtonVisual(OK_BUTTON_X, y_ok_button_top, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
-    drawButtonVisual(OK_BUTTON_X, y_ok_button_top+100, OK_BUTTON_W, OK_BUTTON_H, "ALARM", GREEN, BLACK, buttonFont, 1);
+    //drawButtonVisual(OK_BUTTON_X, y_ok_button_top, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
+    drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
+    drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y+100, OK_BUTTON_W, OK_BUTTON_H, "ALARM", GREEN, BLACK, buttonFont, 1);
 
 
     // --- Draw Touch Zone Indicators (CORRECTED Y POSITION) ---
@@ -802,11 +817,11 @@ void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
 
 
     // Hour Zone Indicator
-    gfx->drawRect(ALARM_SET_H_X1, ALARM_SET_H_Y1-25, 80, 60, DARKGREY);
+    gfx->drawRect(ALARM_SET_H_X1, ALARM_SET_H_Y1-20, 80, 65, DARKGREY);//the y is the top of the rect
     centerText("HH+", time_touch_zone_Y_Top + ALARM_SET_TOUCH_H / 2, DARKGREY, NULL, 1); // Center label vertically
 
     // Minute Zone Indicator
-    gfx->drawRect(ALARM_SET_M_X1, ALARM_SET_M_Y1-25, 80, 60, DARKGREY);
+    gfx->drawRect(ALARM_SET_M_X1, ALARM_SET_M_Y1-20, 80, 65, DARKGREY);
     centerText("MM+", time_touch_zone_Y_Top + ALARM_SET_TOUCH_H / 2, DARKGREY, NULL, 1); // Center label vertically
 
 
