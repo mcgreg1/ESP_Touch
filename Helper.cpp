@@ -19,6 +19,7 @@ const long interval = 1000;
 // Alarm State
 struct tm alarmTime;       // Defined here
 bool isAlarmSet = false;   // Defined here
+bool alarmIsActive;
 bool needsFullRedraw = false;
 bool alarmJustTriggered = false;
 
@@ -53,6 +54,8 @@ uint16_t COLOR_DARK_GREY;
 uint16_t COLOR_ALARM_TIME_ACTIVE;
 uint16_t COLOR_ALARM_TIME_INACTIVE;
 
+static bool lastTouchStatus=false;
+
 struct tm timeinfo;
 unsigned long previousMillis = 0;
 bool timeSynchronized = false;
@@ -74,7 +77,7 @@ bool touchRegisteredThisPress = false;
 bool wasTouchedPreviously = false;
 
 unsigned long lastButtonActionTime = 0; // Stores millis() when a button was last acted upon
-const unsigned long buttonDebounceDelay = 400; // Cooldown in milliseconds (adjust as needed)
+const unsigned long buttonDebounceDelay = 250; // Cooldown in milliseconds (adjust as needed)
 
 // Font pointers
 const GFXfont *font_freesansbold18 = &FreeSansBold18pt7b;
@@ -364,20 +367,60 @@ bool syncNTPTime() {
 
 
 
+// In Helper.cpp
+
+#include "CustomDef.h"
+#include "Helper.h"
+#include <math.h> // Include for fabs()
+
+// ... other includes and global definitions ...
+
 void resyncNTPTime() {
     Serial.println("FUNCTION: resyncNTPTime");
-    if (currentClockState != STATE_RUNNING) { Serial.println("  Skipped: Not RUNNING"); return; }
-    if (WiFi.status() != WL_CONNECTED) { Serial.println("  Skipped: WiFi disconnected."); timeSynchronized = false; currentClockState = STATE_WIFI_NTP_FAILED; return; }
-    Serial.print("  Attempting periodic NTP re-sync... ");
-    struct tm tempTimeInfo;
-    if (!getLocalTime(&tempTimeInfo, 5000)) {
-        Serial.println("Failed.");
-    } else {
-         Serial.println("Success.");
-         timeinfo = tempTimeInfo; timeSynchronized = true; lastNtpSyncMillis = millis();
-         Serial.printf("  Time re-synchronized: %s", asctime(&timeinfo));
+    if (currentClockState != STATE_RUNNING) {
+      Serial.println("  Skipped: Not RUNNING");
+      return;
     }
-     Serial.println("FUNCTION END: resyncNTPTime");
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("  Skipped: WiFi disconnected.");
+      timeSynchronized = false; // Mark as unsynced if WiFi lost
+      currentClockState = STATE_WIFI_NTP_FAILED;
+      displayMessageScreen("WiFi Lost", "Check Network", RED); // Show message
+      return;
+    }
+
+    Serial.print("  Attempting periodic NTP re-sync... ");
+
+    // --- Capture current local time BEFORE syncing ---
+    struct tm timeBeforeSync = timeinfo; // Make a copy of the current time struct
+    time_t secondsBeforeSync = mktime(&timeBeforeSync); // Convert to seconds since epoch
+
+    // --- Attempt to get accurate time from NTP ---
+    struct tm tempTimeInfo; // To store the result from NTP
+    if (!getLocalTime(&tempTimeInfo, 5000)) { // 5 second timeout
+        Serial.println("Failed.");
+        // Time remains unchanged, flag might be set to false by WiFi check later if needed
+    } else {
+        Serial.println("Success.");
+
+        // --- Calculate Time Difference ---
+        time_t secondsAfterSync = mktime(&tempTimeInfo); // Convert newly fetched time to seconds
+        double timeDifference = difftime(secondsAfterSync, secondsBeforeSync); // Calculate difference in seconds
+
+        // --- Update global timeinfo ---
+        timeinfo = tempTimeInfo; // Update main time struct with accurate time
+        timeSynchronized = true; // Ensure flag is true
+        lastNtpSyncMillis = millis(); // Reset timer ONLY on success
+
+        // --- Print results ---
+        Serial.printf("  Time re-synchronized. Drift: %.2f seconds.\n", timeDifference);
+        Serial.printf("  New time: %s", asctime(&timeinfo)); // asctime adds a newline
+
+        // Optional: Only redraw static fields if the date actually changed significantly
+        // Usually the time difference check is enough indication if things drifted
+        // needsStaticRedraw = true;
+    }
+    Serial.println("FUNCTION END: resyncNTPTime");
 }
 
 // Add an initialization function if not already present, or add to existing init
@@ -405,44 +448,27 @@ void ShowStaticFields(const struct tm* currentTime) {
     const GFXfont *staticFieldFont = font_freesansbold18; // For Date/Weekday
     const GFXfont *alarmFont = font_freesans18;       // Font for Alarm Label and Time
 
-    // --- Draw Date/Weekday (Top Part) ---
-    const int y_weekday = 12;
-    const int lineSpacing = 10; // Space between date/weekday
-    int16_t tx, ty; uint16_t tw, mainFontHeight;
-    gfx->setFont(staticFieldFont); gfx->setTextSize(1);
-    gfx->getTextBounds("M", 0, 0, &tx, &ty, &tw, &mainFontHeight);
-    const int y_date = y_weekday + mainFontHeight + lineSpacing;
+
     char buffer[40];
     snprintf(buffer, sizeof(buffer), "%s,", Wochentage[currentTime->tm_wday]);
-    centerText(buffer, y_weekday, RGB565_LIGHT_GREY, staticFieldFont, 1);
+    centerText(buffer, WEEKDAY_Y, RGB565_LIGHT_GREY, staticFieldFont, 1);
+
     snprintf(buffer, sizeof(buffer), "%d. %s %d", currentTime->tm_mday, Monate[currentTime->tm_mon], currentTime->tm_year + 1900);
-    centerText(buffer, y_date, RGB565_LIGHT_GREY, staticFieldFont, 1);
-
-
-    // --- Calculate Position and Dimensions for Alarm Area ---
-    // Get heights needed for layout
-    uint16_t clockHeightApprox, factorHeight, alarmLabelHeight, alarmTimeHeight;
-    gfx->setFont(font_freesansbold18); gfx->setTextSize(2); gfx->getTextBounds("00:00:00",0,0,&tx,&ty,&tw,&clockHeightApprox);
-    gfx->setFont(font_freesans18); gfx->setTextSize(1); gfx->getTextBounds("0",0,0,&tx,&ty,&tw,&factorHeight);
-    gfx->setFont(alarmFont); gfx->setTextSize(1);
-    gfx->getTextBounds(ALARM_LABEL, 0, 0, &tx, &ty, &tw, &alarmLabelHeight);
-    uint16_t labelW = tw;
-    gfx->getTextBounds("00:00", 0, 0, &tx, &ty, &tw, &alarmTimeHeight);
-    uint16_t timeW = tw;
+    centerText(buffer, DATE_Y, RGB565_LIGHT_GREY, staticFieldFont, 1);
 
     // --- Draw Rectangle ---
     gfx->drawRect(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, COLOR_ALARM_TIME_INACTIVE);
 
     // --- Draw "Alarm:" Text ---
-    gfx->setFont(alarmFont); gfx->setTextSize(1); gfx->setTextColor(COLOR_ALARM_TIME_INACTIVE);
-    gfx->getTextBounds(ALARM_LABEL, 0, 0, &tx, &ty, &tw, &alarmLabelHeight);
+    gfx->setFont(alarmFont); 
+    gfx->setTextSize(1); 
+    gfx->setTextColor(COLOR_ALARM_TIME_INACTIVE);
     gfx->setCursor(ALARM_RECT_X+3, ALARM_RECT_Y+ALARM_RECT_H/2-1);
     gfx->print(ALARM_LABEL);
 
     // --- Draw "HH:MM" Text ---
     char alarmStrTime[6];
     snprintf(alarmStrTime, sizeof(alarmStrTime), "%02d:%02d", alarmTime.tm_hour, alarmTime.tm_min);
-    gfx->getTextBounds(alarmStrTime, 0, 0, &tx, &ty, &tw, &alarmTimeHeight);
     gfx->setCursor(ALARM_RECT_X+10, ALARM_RECT_Y+ALARM_RECT_H-5);
     gfx->print(alarmStrTime);
 
@@ -461,23 +487,19 @@ void ShowStaticFields(const struct tm* currentTime) {
 void handleTouchInput() {
     if (!ts_ptr) return;
 
-    // 1. Read hardware state
-    ts_ptr->read();
-    bool isTouchedNow = ts_ptr->isTouched;
-    // bool touchActionTakenThisCall = false; // No longer needed here
-
-    // --- Check if Debounce Cooldown Active ---
     unsigned long currentMillis = millis(); // Get time once
     if (currentMillis - lastButtonActionTime < buttonDebounceDelay) {
         // Still in cooldown from the last button press, ignore new touches
         return;
     }
+    ts_ptr->read();
+    bool currentTouchStatus = ts_ptr->isTouched; // <<< LOCAL variable, read fresh
 
-    // --- Process Touch only if cooldown is over AND it's a new press ---
-    // (We can simplify slightly: If it's touched now and cooldown is over, process it.
-    // The time delay inherently prevents rapid re-triggering better than the wasTouched flag)
-
-    if (isTouchedNow) {
+    if (currentTouchStatus==true && lastTouchStatus == false) {
+      lastButtonActionTime = currentMillis;
+      Serial.println("Touch TOUCHED");
+      if (isAlarmSet && alarmIsActive)
+        alarmIsActive=false;
           bool actionProcessed = false;
         // Get INVERTED coordinates
         int touchX = 480 - ts_ptr->points[0].x;
@@ -493,88 +515,82 @@ void handleTouchInput() {
             previousTouchCoordsStr[0] = ' '; previousTouchCoordsStr[1] = '\0';
         }
 
-        // --- Check Buttons (Execute only if cooldown has passed) ---
-        bool buttonPressedThisCheck = false;
 
         if (currentClockState == STATE_RUNNING) 
         {
-        // Check Station Buttons
-        for (int i = 0; i < NUM_STATION_BUTTONS; ++i) {
-            // ... (Calculate btnX, btnY as before) ...
-            int col = i % BUTTON_COLS;
-            int row = i / BUTTON_COLS;
-            int btnX = BUTTON_MARGIN_LEFT + col * (BUTTON_WIDTH + BUTTON_H_SPACE);
-            int btnY = h - BUTTON_MARGIN_BOTTOM - (BUTTON_ROWS - row) * BUTTON_HEIGHT - (BUTTON_ROWS - 1 - row) * BUTTON_V_SPACE;
+          int radioIndex=0;
+          if (touchX >= STAT_BUTTON_0_X && touchX < (STAT_BUTTON_0_X + STAT_BUTTON_WIDTH) && 
+          touchY >= STAT_BUTTON_0_Y && touchY < (STAT_BUTTON_0_Y + STAT_BUTTON_HEIGHT))
+            radioIndex=0;
 
-            if (touchX >= btnX && touchX < (btnX + BUTTON_WIDTH) &&
-                touchY >= btnY && touchY < (btnY + BUTTON_HEIGHT))
-            {
-                Serial.printf("Station Button %d Action Triggered.\n", i);
-                buttonPressedThisCheck = true;
-                lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
+          else if (touchX >= STAT_BUTTON_1_X && touchX < (STAT_BUTTON_1_X + STAT_BUTTON_WIDTH) && 
+          touchY >= STAT_BUTTON_1_Y && touchY < (STAT_BUTTON_1_Y + STAT_BUTTON_HEIGHT))
+            radioIndex=1;
 
-                if (activeStationIndex == i) { /* ... Deactivate ... */ 
-                    Serial.println("  Deactivating station.");
-                    activeStationIndex = -1;
-                    audio_ptr->stopSong();
-                    drawStationButton(i, false); // Redraw as inactive
+          else if (touchX >= STAT_BUTTON_2_X && touchX < (STAT_BUTTON_2_X + STAT_BUTTON_WIDTH) && 
+          touchY >= STAT_BUTTON_2_Y && touchY < (STAT_BUTTON_2_Y + STAT_BUTTON_HEIGHT))
+            radioIndex=2;
+
+          else if (touchX >= STAT_BUTTON_3_X && touchX < (STAT_BUTTON_3_X + STAT_BUTTON_WIDTH) && 
+          touchY >= STAT_BUTTON_3_Y && touchY < (STAT_BUTTON_3_Y + STAT_BUTTON_HEIGHT))
+            radioIndex=3;
+
+          else 
+            radioIndex=-1;
+
+
+        if (radioIndex!=-1)
+        {
+            Serial.printf("Station Button %d Action Triggered.\n", radioIndex);
+
+            if (activeStationIndex == radioIndex) { /* ... Deactivate ... */ 
+                Serial.println("  Deactivating station.");
+                activeStationIndex = -1;
+                audio_ptr->stopSong();
+                drawStationButton(radioIndex, false); // Redraw as inactive
+            }
+            else { /* ... Activate ... */ 
+                Serial.printf("  Activating station: %s\n", station_labels[radioIndex]);
+                int previouslyActive = activeStationIndex;
+                if (previouslyActive != -1) {
+                    drawStationButton(previouslyActive, false); // Deactivate old one visually
                 }
-                else { /* ... Activate ... */ 
-                    Serial.printf("  Activating station: %s\n", station_labels[i]);
-                    int previouslyActive = activeStationIndex;
-                    if (previouslyActive != -1) {
-                        drawStationButton(previouslyActive, false); // Deactivate old one visually
-                    }
-                    activeStationIndex = i;
-                    drawStationButton(i, true); // Redraw new button as active
+                activeStationIndex = radioIndex;
+                drawStationButton(radioIndex, true); // Redraw new button as active
 
-                    Serial.printf("  Connecting to host: %s\n", station_urls[i]);
-                    if (!audio_ptr->connecttohost(station_urls[i])) {
-                            Serial.println("  ERROR: connecttohost failed!");
-                            drawStationButton(i, false); // Revert visual
-                            activeStationIndex = previouslyActive;
-                            if(activeStationIndex != -1) { drawStationButton(activeStationIndex, true); }
-                            // displayMessageScreen("Audio Error", "Connection Failed", RED); delay(2000);
-                    } 
-                    else {
-                        Serial.println("  connecttohost potentially successful.");
-                    }
+                Serial.printf("  Connecting to host: %s\n", station_urls[radioIndex]);
+                if (!audio_ptr->connecttohost(station_urls[radioIndex])) {
+                        Serial.println("  ERROR: connecttohost failed!");
+                        drawStationButton(radioIndex, false); // Revert visual
+                        activeStationIndex = previouslyActive;
+                        if(activeStationIndex != -1) { drawStationButton(activeStationIndex, true); }
+                        // displayMessageScreen("Audio Error", "Connection Failed", RED); delay(2000);
+                } 
+                else {
+                    Serial.println("  connecttohost potentially successful.");
                 }
-                break;
             }
         }
 
-        // Check Volume Buttons
-        if (!buttonPressedThisCheck) {
-            // ... (Calculate volBtnX, volDownBtnY, volUpBtnY as before) ...
-            int volBtnX = w - VOL_BUTTON_MARGIN_RIGHT - VOL_BUTTON_WIDTH;
-            int volDownBtnY = h - BUTTON_MARGIN_BOTTOM - BUTTON_HEIGHT;
-            int volUpBtnY = volDownBtnY - BUTTON_HEIGHT - VOL_BUTTON_V_SPACE;
-
-
-            // Volume Down
-            if (touchX >= volBtnX && touchX < (volBtnX + VOL_BUTTON_WIDTH) &&
-                touchY >= volDownBtnY && touchY < (volDownBtnY + VOL_BUTTON_HEIGHT))
-            {
-                Serial.println("Volume Down Action.");
-                lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
-                int currentVolume = audio_ptr->getVolume();
-                if (currentVolume > 0) audio_ptr->setVolume(currentVolume - 1);
-                Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
-                buttonPressedThisCheck = true; // Mark as pressed for clarity if needed elsewhere
-            }
-            // Volume Up
-            else if (touchX >= volBtnX && touchX < (volBtnX + VOL_BUTTON_WIDTH) &&
-                     touchY >= volUpBtnY && touchY < (volUpBtnY + VOL_BUTTON_HEIGHT))
-            {
-                 Serial.println("Volume Up Action.");
-                 lastButtonActionTime = currentMillis; // <<< SET COOLDOWN TIMER
-                 int currentVolume = audio_ptr->getVolume();
-                 if (currentVolume < 21) audio_ptr->setVolume(currentVolume + 1);
-                 Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
-                 buttonPressedThisCheck = true; // Mark as pressed
-            }
+        // Volume Down
+        if (touchX >= VOL_BUTTON_DOWN_X && touchX < (VOL_BUTTON_DOWN_X + VOL_BUTTON_WIDTH) &&
+            touchY >= VOL_BUTTON_DOWN_Y && touchY < (VOL_BUTTON_DOWN_Y + VOL_BUTTON_HEIGHT))
+        {
+            Serial.println("Volume Down Action.");
+            int currentVolume = audio_ptr->getVolume();
+            if (currentVolume > 0) audio_ptr->setVolume(currentVolume - 1);
+            Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
         }
+        // Volume Up
+        else if (touchX >= VOL_BUTTON_UP_X && touchX < (VOL_BUTTON_UP_X + VOL_BUTTON_WIDTH) &&
+                  touchY >= VOL_BUTTON_UP_Y && touchY < (VOL_BUTTON_UP_Y + VOL_BUTTON_HEIGHT))
+        {
+              Serial.println("Volume Up Action.");
+              int currentVolume = audio_ptr->getVolume();
+              if (currentVolume < 21) audio_ptr->setVolume(currentVolume + 1);
+              Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
+        }
+    
 
         // --- Check Alarm Area Touch ---
 
@@ -582,24 +598,10 @@ void handleTouchInput() {
             touchY >= ALARM_RECT_Y && touchY < (ALARM_RECT_Y + ALARM_RECT_H))
         {
             handleAlarmAreaTouch(); // Call the dedicated handler
-            lastButtonActionTime = currentMillis; // Start debounce
         }
         }//state is running
         else if (currentClockState == STATE_SETTING_ALARM) {
             Serial.println("Checking touches in SETTING_ALARM state");
-
-            // --- Calculate OK Button's Dynamic Y Position ---
-            // (Repeat minimal layout calculation needed for OK button Y)
-            const GFXfont *mainFont = font_freesansbold18; const GFXfont *promptFont = font_freesans18;
-            int16_t tx, ty; uint16_t tw, timeH, promptH;
-            gfx->setFont(mainFont); gfx->setTextSize(2); gfx->getTextBounds("00:00",0,0,&tx,&ty,&tw,&timeH);
-            gfx->setFont(promptFont); gfx->setTextSize(1); gfx->getTextBounds("Alarmzeit",0,0,&tx,&ty,&tw,&promptH);
-            int lineSpacing = 15;
-            int totalHeight = timeH + lineSpacing + promptH + lineSpacing + OK_BUTTON_H;
-            int startY = (h - totalHeight) / 2; if (startY < 5) startY = 5;
-            int y_alarm_set_time_top = startY;
-            int y_prompt_top = y_alarm_set_time_top + timeH + lineSpacing;
-            int y_ok_button_top = y_prompt_top + promptH + lineSpacing; // Calculated OK button Y
 
             // --- Check Touch Zones using DEFINED COORDINATES ---
             // Hour Zone Check
@@ -608,7 +610,6 @@ void handleTouchInput() {
                  Serial.println("Alarm Hour Zone Touched");
                  alarmTime.tm_hour = (alarmTime.tm_hour + 1) % 24;
                  displaySetAlarmScreen(&alarmTime); // Redraw screen
-                 actionProcessed = true; lastButtonActionTime = currentMillis;
              }
              // Minute Zone Check
              else if (touchX >= ALARM_SET_M_X1 && touchX < ALARM_SET_M_X2 &&
@@ -616,28 +617,20 @@ void handleTouchInput() {
                  Serial.println("Alarm Minute Zone Touched");
                  alarmTime.tm_min = (alarmTime.tm_min + 1) % 60;
                  displaySetAlarmScreen(&alarmTime); // Redraw screen
-                 actionProcessed = true; lastButtonActionTime = currentMillis;
              }
              // OK Button Check (Using calculated Y)
              else if (touchX >= OK_BUTTON_X && touchX < (OK_BUTTON_X + OK_BUTTON_W) &&
-                      touchY >= y_ok_button_top && touchY < (y_ok_button_top + OK_BUTTON_H)) {
+                      touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
                  Serial.println("Alarm OK Button Touched");
                  alarmJustTriggered = false;
                  currentClockState = STATE_RUNNING;
                  needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
-                 actionProcessed = true; lastButtonActionTime = currentMillis;
-                 // Main loop handles screen change on state transition
              }
             } // End state checks
-        // Set the global debounce flag *if* an action was processed
-        if (actionProcessed) {
-             touchRegisteredThisPress = true;
-         }
+
     } // End if (isTouchedNow)
-        // Reset global debounce flag when touch is released
-    if (!isTouchedNow) {
-        touchRegisteredThisPress = false;
-    }
+    lastTouchStatus = currentTouchStatus;
+
 }
 
 void displayClock(const struct tm* currentTime, bool showFractals) {
@@ -658,9 +651,8 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
 
 
     if (strcmp(timeStr, previousTimeStr) != 0) {
-            gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H+60, BLACK); 
-            //Serial.println("REDAEAQWQAWQWQ");
-            strcpy(previousTimeStr, timeStr);
+        gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H+60, BLACK); 
+        strcpy(previousTimeStr, timeStr);
         gfx->setCursor(CLOCK_X, CLOCK_Y);
         gfx->setTextColor(WHITE);
         
@@ -675,28 +667,24 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
         char uptimeStr[16];
         snprintf(uptimeStr, sizeof(uptimeStr), "Uptime %d min.", millis()/1000/60);
         gfx->print(uptimeStr);
-    }
-    if (showFractals)
-    {
-        int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
-        char factorBuffer[MAX_FACTOR_STR_LEN];
-        primeFactorsToString(timeNum, factorBuffer, sizeof(factorBuffer));
-        char combinedOutputStr[10 + MAX_FACTOR_STR_LEN];
-        snprintf(combinedOutputStr, sizeof(combinedOutputStr), "%06d=%s", timeNum, factorBuffer);
-    
-        if (strcmp(combinedOutputStr, previousFactorStr) != 0) {
-            int left_margin = 4;
-            if (prev_factor_h > 0) { 
-                gfx->fillRect(0, FRACTAL_Y, w, 40, BLACK); }
+        if (showFractals)
+        {
+            int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
+            char factorBuffer[MAX_FACTOR_STR_LEN];
+            primeFactorsToString(timeNum, factorBuffer, sizeof(factorBuffer));
+            char combinedOutputStr[10 + MAX_FACTOR_STR_LEN];
+            snprintf(combinedOutputStr, sizeof(combinedOutputStr), "%06d=%s", timeNum, factorBuffer);
+            gfx->fillRect(FRACTAL_X, FRACTAL_Y, 450, 28, BLACK); 
             gfx->setFont(factorFont); 
             gfx->setTextSize(1); 
             gfx->setTextColor(WHITE);
             uint16_t h1; 
-            gfx->setCursor(left_margin, FRACTAL_Y); 
+            gfx->setCursor(FRACTAL_X, FRACTAL_Y); 
             gfx->print(combinedOutputStr);
-            strcpy(previousFactorStr, combinedOutputStr); prev_factor_h = h1;
+
         }
     }
+
 }
 
 
@@ -761,11 +749,12 @@ void handleAlarmAreaTouch() {
 }
 
 // --- Alarm Callback Function ---
-void alarmIsActive() {
+void alarmActivated() {
     // ... (Existing function) ...
     Serial.println("!!!!!!!!!!!!!!!!!!!!!!");
     Serial.println("!!!!! ALARM ACTIVE !!!!!");
     Serial.println("!!!!!!!!!!!!!!!!!!!!!!");
+    alarmIsActive=true;
 }
 // In Helper.cpp
 
@@ -959,37 +948,36 @@ void drawButtonVisual(int x, int y, int w, int h, const char* label, uint16_t bg
 void drawStationButton(int index, bool isActive) {
     if (index < 0 || index >= NUM_STATION_BUTTONS) return;
 
-    // Calculate button position (Grid layout, bottom-left aligned)
-    int col = index % BUTTON_COLS;
-    int row = index / BUTTON_COLS;
-    int btnX = BUTTON_MARGIN_LEFT + col * (BUTTON_WIDTH + BUTTON_H_SPACE);
-    // Y calculation starts from bottom edge
-    int btnY = h - BUTTON_MARGIN_BOTTOM - (BUTTON_ROWS - row) * BUTTON_HEIGHT - (BUTTON_ROWS - 1 - row) * BUTTON_V_SPACE;
+    int btnX, btnY; 
+    if (index==0 || index==2)
+      btnX=STAT_BUTTON_0_X;
+    else
+      btnX=STAT_BUTTON_1_X;
+    
+    if (index==0 || index==1)
+      btnY=STAT_BUTTON_0_Y;
+    else
+      btnY=STAT_BUTTON_2_Y;
+
 
     uint16_t bgColor = isActive ? COLOR_BUTTON_BG_ACTIVE : COLOR_BUTTON_BG_IDLE;
-    drawButtonVisual(btnX, btnY, BUTTON_WIDTH, BUTTON_HEIGHT,
+    drawButtonVisual(btnX, btnY, STAT_BUTTON_WIDTH, STAT_BUTTON_HEIGHT,
                      station_labels[index], bgColor, COLOR_BUTTON_TEXT,
                      font_freesans18, 1); // Using FreeSans18pt font
 }
 
 // Helper function to draw the volume buttons
 void drawVolumeButtons() {
-    // Calculate positions (Right aligned, vertically aligned with station buttons)
-    int volBtnX = w - VOL_BUTTON_MARGIN_RIGHT - VOL_BUTTON_WIDTH;
-    // Align with bottom row of station buttons
-    int volDownBtnY = h - BUTTON_MARGIN_BOTTOM - BUTTON_HEIGHT;
-    int volUpBtnY = volDownBtnY - BUTTON_HEIGHT - VOL_BUTTON_V_SPACE;
 
     // Draw Volume Down
-    drawButtonVisual(volBtnX, volDownBtnY, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
+    drawButtonVisual(VOL_BUTTON_DOWN_X, VOL_BUTTON_DOWN_Y, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
                      VOL_DOWN_LABEL, COLOR_BUTTON_BG_IDLE, COLOR_BUTTON_TEXT,
                      font_freesansbold18, 2); // Larger font for +/-
 
     // Draw Volume Up
-    drawButtonVisual(volBtnX, volUpBtnY, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
+    drawButtonVisual(VOL_BUTTON_UP_X, VOL_BUTTON_UP_Y, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
                      VOL_UP_LABEL, COLOR_BUTTON_BG_IDLE, COLOR_BUTTON_TEXT,
                      font_freesansbold18, 2); // Larger font for +/-
 }
-
 
 
