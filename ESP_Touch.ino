@@ -7,14 +7,10 @@ void setup() {
     currentClockState = STATE_BOOTING;
 
     InstantiateGfxAndTouchObjects(); // Creates gfx, bus, rgbpanel, ts_ptr objects
-    delay(100);
     InitDisplay();                   // Initializes gfx, sets w/h, clears screen, backlight
-    delay(100);
     InitTouch();                     // Initializes touch controller via I2C
-    delay(100);
     //InitSD();
     InitAudio();
-    delay(100);
     initializeColors();
     initializeAlarm();
     Serial.println("INIT WIFI");
@@ -46,6 +42,7 @@ void setup() {
     Serial.println("Setup Complete.");
     //audio.connecttohost("http://streams.egofm.de/egoFM-hq/");
     resyncNTPTime();
+    isAlarmSet=true;
 }
 
 // --- Loop ---
@@ -81,6 +78,14 @@ void loop() {
 
             displayClock(&timeinfo);
         }
+      if (isAlarmSet)
+      {
+        if ((timeinfo.tm_hour == alarmTime.tm_hour &&
+                    timeinfo.tm_min == alarmTime.tm_min && timeinfo.tm_sec == alarmTime.tm_sec) || alarmIsActive)
+                {
+                  alarmActivated();
+                }
+      }
     }
 
     if (touchCoordsVisible)
@@ -92,7 +97,7 @@ void loop() {
     }
     if (currentClockState==STATE_RUNNING)
     {
-        if (needsFullRedraw) {//TODO:also when day changes!!!
+        if (needsFullRedraw) {
             gfx->fillScreen(BLACK);
             ShowStaticFields(&timeinfo);
             needsFullRedraw = false;
@@ -160,5 +165,4 @@ void audio_showstreamtitle(const char *info)
     Serial.print("streamtitle ");
     Serial.println(info);
 }
-
 
