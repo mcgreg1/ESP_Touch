@@ -19,12 +19,18 @@
 #include "Audio.h"
 #include "SD.h"
 
+// Include fonts here as they define types (GFXfont) needed by extern declarations
+#include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSansBold18pt7b.h"
+#include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSans18pt7b.h"
+#include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSans12pt7b.h"
+
 // --- Font Includes ---
 // Include fonts here as they define types (GFXfont) needed by extern declarations
+/*
 #include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSansBold18pt7b.h"
 #include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans18pt7b.h"
 #include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans12pt7b.h"
-
+*/
 // --- Display Configuration ---
 #define GFX_BL 38
 extern Arduino_DataBus *bus;         // Pointer Declaration
@@ -119,32 +125,13 @@ extern uint16_t prev_touch_coords_h;
 extern const GFXfont *font_freesansbold18;
 extern const GFXfont *font_freesans18;
 extern const GFXfont *font_freesans12;
-//Radio def
 
-#define NUM_STATION_BUTTONS 4
-#define BUTTON_COLS 2
-#define BUTTON_ROWS 2
-#define BUTTON_WIDTH (w / 3) // Width is 1/3 of screen
-#define BUTTON_HEIGHT 60     // Fixed height (adjust as needed)
-#define BUTTON_H_SPACE 10    // Horizontal space between buttons
-#define BUTTON_V_SPACE 10    // Vertical space between buttons
-#define BUTTON_MARGIN_LEFT 10 // Margin from left edge
-#define BUTTON_MARGIN_BOTTOM 10 // Margin from bottom edge
 
-// Define placeholder labels and corresponding stream URLs
-extern const char* station_labels[NUM_STATION_BUTTONS];
-extern const char* station_urls[NUM_STATION_BUTTONS];
 
 extern int activeStationIndex; // Index of the active station button (-1 for none)
 extern bool touchRegisteredThisPress;
 
-// Volume Buttons
-#define VOL_BUTTON_WIDTH 50
-#define VOL_BUTTON_HEIGHT BUTTON_HEIGHT // Same height as station buttons
-#define VOL_BUTTON_V_SPACE BUTTON_V_SPACE
-#define VOL_BUTTON_MARGIN_RIGHT 10
-#define VOL_UP_LABEL "+"
-#define VOL_DOWN_LABEL "-"
+
 
 // --- Global Variables (Declarations) ---
 // ... existing externs ...
@@ -178,14 +165,9 @@ extern uint16_t COLOR_BUTTON_TEXT;      // Color for button text
 // Alarm State
 extern struct tm alarmTime;       // Holds the HH:MM for the alarm
 extern bool isAlarmSet;           // Is the alarm currently active? (Keep for later)
+extern bool alarmIsActive;
 extern bool needsFullRedraw;
 extern bool alarmJustTriggered;
-
-#define ALARM_LABEL "Alarm: "        // Text prefix
-#define ALARM_AREA_PADDING 5       // Pixels around text inside rectangle
-#define ALARM_AREA_MARGIN_RIGHT 10 // Pixels from right edge of screen
-#define ALARM_TIME_Y_OFFSET 15      // Space below factor line
-#endif // CUSTOMDEF_H
 
 // --- Touch Zones & Dimensions ---
 
@@ -195,9 +177,6 @@ extern bool alarmJustTriggered;
 #define MINUTE_TOUCH_X    (w * 0.6) // Base X for Minute adjust zone
 #define MINUTE_TOUCH_W    (w * 0.3) // Base Width for Minute adjust zone
 #define SETTING_TOUCH_ZONE_H  60    // Common Height for HH/MM touch zones in setting screens
-
-// Offsets for placing touch zones relative to displayed time in setting screens
-#define ALARM_SET_Y_OFFSET  20      // Offset below alarm time display in SET_ALARM screen
 
 // OK Button (Common for Set Time/Alarm screens)
 #define OK_BUTTON_W       100
@@ -245,17 +224,19 @@ extern const unsigned long alarmLongPressDuration; // Duration for long press
 
 
 //---------------fixed size
-
-
-
-
-#define ALARM_RECT_X 363
-#define ALARM_RECT_Y 194
-#define ALARM_RECT_W 107
-#define ALARM_RECT_H 63
+#define WEEKDAY_Y   12
+#define DATE_Y      48
 
 #define CLOCK_X 100
 #define CLOCK_Y 140
+
+//Alarm Time Box
+#define ALARM_RECT_X 363
+#define ALARM_RECT_Y 230
+#define ALARM_RECT_W 107
+#define ALARM_RECT_H 63
+
+
 #define CLOCK_RECT_X 100
 #define CLOCK_RECT_Y 90
 #define CLOCK_RECT_W 270
@@ -264,4 +245,33 @@ extern const unsigned long alarmLongPressDuration; // Duration for long press
 #define FRACTAL_X 2
 #define FRACTAL_Y 210
 
+//Radio Buttons
+#define NUM_STATION_BUTTONS 4
+#define STAT_BUTTON_WIDTH 160
+#define STAT_BUTTON_HEIGHT 60
+#define STAT_BUTTON_0_X 10
+#define STAT_BUTTON_0_Y 340
+#define STAT_BUTTON_1_X 180
+#define STAT_BUTTON_1_Y 340
+#define STAT_BUTTON_2_X 10
+#define STAT_BUTTON_2_Y 410
+#define STAT_BUTTON_3_X 180
+#define STAT_BUTTON_3_Y 410
 
+
+// Volume Buttons
+#define VOL_BUTTON_UP_X 420
+#define VOL_BUTTON_UP_Y STAT_BUTTON_0_Y
+#define VOL_BUTTON_DOWN_X VOL_BUTTON_UP_X
+#define VOL_BUTTON_DOWN_Y STAT_BUTTON_2_Y
+
+#define VOL_BUTTON_WIDTH 50
+#define VOL_BUTTON_HEIGHT STAT_BUTTON_HEIGHT // Same height as station buttons
+#define VOL_BUTTON_MARGIN_RIGHT 10
+#define VOL_UP_LABEL "+"
+#define VOL_DOWN_LABEL "-"
+#define ALARM_LABEL "Alarm"
+// Define placeholder labels and corresponding stream URLs
+extern const char* station_labels[NUM_STATION_BUTTONS];
+extern const char* station_urls[NUM_STATION_BUTTONS];
+#endif
