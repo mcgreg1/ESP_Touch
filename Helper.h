@@ -16,6 +16,7 @@ bool InitSD();
 void InitAudio();
 void initializeColors(); 
 void initializeAlarm();
+void alarmActivated();
 
 // NTP
 bool syncNTPTime();
