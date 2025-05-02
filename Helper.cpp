@@ -518,6 +518,7 @@ void handleTouchInput() {
 
         if (currentClockState == STATE_RUNNING) 
         {
+          //check if radio button was touched
           int radioIndex=0;
           if (touchX >= STAT_BUTTON_0_X && touchX < (STAT_BUTTON_0_X + STAT_BUTTON_WIDTH) && 
           touchY >= STAT_BUTTON_0_Y && touchY < (STAT_BUTTON_0_Y + STAT_BUTTON_HEIGHT))
@@ -602,30 +603,7 @@ void handleTouchInput() {
         }//state is running
         else if (currentClockState == STATE_SETTING_ALARM) {
             Serial.println("Checking touches in SETTING_ALARM state");
-
-            // --- Check Touch Zones using DEFINED COORDINATES ---
-            // Hour Zone Check
-             if (touchX >= ALARM_SET_H_X1 && touchX < ALARM_SET_H_X2 &&
-                 touchY >= ALARM_SET_H_Y1 && touchY < ALARM_SET_H_Y2) {
-                 Serial.println("Alarm Hour Zone Touched");
-                 alarmTime.tm_hour = (alarmTime.tm_hour + 1) % 24;
-                 displaySetAlarmScreen(&alarmTime); // Redraw screen
-             }
-             // Minute Zone Check
-             else if (touchX >= ALARM_SET_M_X1 && touchX < ALARM_SET_M_X2 &&
-                      touchY >= ALARM_SET_M_Y1 && touchY < ALARM_SET_M_Y2) {
-                 Serial.println("Alarm Minute Zone Touched");
-                 alarmTime.tm_min = (alarmTime.tm_min + 1) % 60;
-                 displaySetAlarmScreen(&alarmTime); // Redraw screen
-             }
-             // OK Button Check (Using calculated Y)
-             else if (touchX >= OK_BUTTON_X && touchX < (OK_BUTTON_X + OK_BUTTON_W) &&
-                      touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
-                 Serial.println("Alarm OK Button Touched");
-                 alarmJustTriggered = false;
-                 currentClockState = STATE_RUNNING;
-                 needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
-             }
+               handleSetAlarmClock(touchX,touchY);
             } // End state checks
 
     } // End if (isTouchedNow)
@@ -686,8 +664,32 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
     }
 
 }
-
-
+void handleSetAlarmClock(int touchX, int touchY)
+{
+// --- Check Touch Zones using DEFINED COORDINATES ---
+// Hour Zone Check
+  if (touchX >= ALARM_SET_H_X && touchX < ALARM_SET_H_X + ALARM_SET_BOX_W &&
+      touchY >= ALARM_SET_BOX_Y && touchY < ALARM_SET_BOX_Y + ALARM_SET_BOX_H) {
+      Serial.println("Alarm Hour Zone Touched");
+      alarmTime.tm_hour = (alarmTime.tm_hour + 1) % 24;
+      displaySetAlarmScreen(&alarmTime); // Redraw screen
+  }
+  // Minute Zone Check
+  else if (touchX >= ALARM_SET_M_X && touchX < ALARM_SET_M_X + ALARM_SET_BOX_W&&
+          touchY >= ALARM_SET_BOX_Y && touchY < ALARM_SET_BOX_Y + ALARM_SET_BOX_H) {
+      Serial.println("Alarm Minute Zone Touched");
+      alarmTime.tm_min = (alarmTime.tm_min + 1) % 60;
+      displaySetAlarmScreen(&alarmTime); // Redraw screen
+  }
+  // OK Button Check (Using calculated Y)
+  else if (touchX >= OK_BUTTON_X && touchX < (OK_BUTTON_X + OK_BUTTON_W) &&
+          touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
+      Serial.println("Alarm OK Button Touched");
+      alarmJustTriggered = false;
+      currentClockState = STATE_RUNNING;
+      needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
+  }
+}
 void displayMessageScreen(const char* line1, const char* line2, uint16_t color) {
     Serial.printf("FUNCTION: displayMessageScreen - L1: %s, L2: %s\n", line1, line2 ? line2 : "NULL");
     if (!gfx) return;
@@ -764,54 +766,25 @@ void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
     if (!gfx) return;
     gfx->fillScreen(BLACK);
     Serial.println("FUNCTION: displaySetAlarmScreen");
-
-    // --- Fonts & Layout Calculation ---
-    // ... (Keep existing font definitions and height calculations) ...
     const GFXfont *mainFont = font_freesansbold18; // Large time display
     const GFXfont *promptFont = font_freesans18;   // Instructions
     const GFXfont *buttonFont = font_freesansbold18;// OK button text
-    int16_t tx, ty; uint16_t tw, timeH, promptH, buttonTextH;
-    gfx->setFont(mainFont); gfx->setTextSize(2); gfx->getTextBounds("00:00",0,0,&tx,&ty,&tw,&timeH);
-    gfx->setFont(promptFont); gfx->setTextSize(1); gfx->getTextBounds("Alarmzeit",0,0,&tx,&ty,&tw,&promptH);
-    gfx->setFont(buttonFont); gfx->setTextSize(1); gfx->getTextBounds("OK",0,0,&tx,&ty,&tw,&buttonTextH);
-    int lineSpacing = 15; int touchZoneSpacing = 10; // Spacing below time for zones
-    int totalHeight = timeH + lineSpacing + promptH + lineSpacing + OK_BUTTON_H;
-    int startY = (h - totalHeight) / 2; if (startY < 5) startY = 5;
-    int y_alarm_set_time_top = startY;
-    int y_prompt_top = y_alarm_set_time_top + timeH + lineSpacing;
-    int y_ok_button_top = y_prompt_top + promptH + lineSpacing;
+    char alarmSet[6]; 
+    snprintf(alarmSet, sizeof(alarmSet), "%02d:%02d", currentAlarmTime->tm_hour, currentAlarmTime->tm_min);
+    centerText(alarmSet, ALARM_SET_BOX_Y+5, WHITE, mainFont, 2);//in the box (5px space)
+    centerText("Alarmzeit einstellen", ALARM_SET_BOX_Y+ALARM_SET_BOX_H+3, RGB565_LIGHT_GREY, promptFont, 1);//3 px below the box
 
-    // --- Draw Time, Prompt, OK Button ---
-    // ... (Keep existing drawing code for these elements) ...
-    char alarmSet[6]; snprintf(alarmSet, sizeof(alarmSet), "%02d:%02d", currentAlarmTime->tm_hour, currentAlarmTime->tm_min);
-    centerText(alarmSet, y_alarm_set_time_top, WHITE, mainFont, 2);
-    centerText("Alarmzeit einstellen", y_prompt_top, RGB565_LIGHT_GREY, promptFont, 1);
     //drawButtonVisual(OK_BUTTON_X, y_ok_button_top, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
     drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
     drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y+100, OK_BUTTON_W, OK_BUTTON_H, "ALARM", GREEN, BLACK, buttonFont, 1);
 
-
-    // --- Draw Touch Zone Indicators (CORRECTED Y POSITION) ---
-    // Calculate Y for the touch zones BELOW the displayed time
-    int time_display_bottom = y_alarm_set_time_top + timeH; // Bottom edge of the large time text box
-    int time_touch_zone_Y_Top = time_display_bottom + touchZoneSpacing; // <<< Position below the time display
-
-    // Ensure zones don't overlap the OK button
-    if (time_touch_zone_Y_Top + ALARM_SET_TOUCH_H > y_ok_button_top) {
-        Serial.println("WARNING: Calculated touch zones might overlap OK button! Adjust spacing/heights.");
-        // Optionally adjust time_touch_zone_Y_Top upwards slightly if possible
-        time_touch_zone_Y_Top = y_ok_button_top - ALARM_SET_TOUCH_H - 5; // Example: place 5px above button
-        if (time_touch_zone_Y_Top < time_display_bottom) time_touch_zone_Y_Top = time_display_bottom + 2; // Ensure some space below time
-    }
-
-
     // Hour Zone Indicator
-    gfx->drawRect(ALARM_SET_H_X1, ALARM_SET_H_Y1-20, 80, 65, DARKGREY);//the y is the top of the rect
-    centerText("HH+", time_touch_zone_Y_Top + ALARM_SET_TOUCH_H / 2, DARKGREY, NULL, 1); // Center label vertically
+    gfx->drawRect(ALARM_SET_H_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);//the y is the top of the rect
+    centerText("HH+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
 
     // Minute Zone Indicator
-    gfx->drawRect(ALARM_SET_M_X1, ALARM_SET_M_Y1-20, 80, 65, DARKGREY);
-    centerText("MM+", time_touch_zone_Y_Top + ALARM_SET_TOUCH_H / 2, DARKGREY, NULL, 1); // Center label vertically
+    gfx->drawRect(ALARM_SET_M_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);
+    centerText("MM+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
 
 
     Serial.println("FUNCTION END: displaySetAlarmScreen");
