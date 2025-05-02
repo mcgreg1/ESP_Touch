@@ -206,16 +206,17 @@ extern bool alarmJustTriggered;
 // ... existing externs ...
 extern uint16_t COLOR_OK_BUTTON_GREEN; // Ensure this is declared if used
 
-// --- Touch Zones for ALARM SETTING Screen (Specific Coordinates) ---
-#define ALARM_SET_H_X1 150 // Hour zone top-left X
-#define ALARM_SET_H_Y1 175 // Hour zone top-left Y
-#define ALARM_SET_H_X2 230 // Hour zone bottom-right X
-#define ALARM_SET_H_Y2 230 // Hour zone bottom-right Y
+//alarm text 160
+//alarm set 227
 
-#define ALARM_SET_M_X1 248 // Minute zone top-left X
-#define ALARM_SET_M_Y1 175 // Minute zone top-left Y (Corrected to match Hours Y1 based on usual layout)
-#define ALARM_SET_M_X2 330 // Minute zone bottom-right X
-#define ALARM_SET_M_Y2 230 // Minute zone bottom-right Y
+
+// --- Touch Zones for ALARM SETTING Screen (Specific Coordinates) ---
+#define ALARM_SET_H_X 150 // Hour zone top-left X
+#define ALARM_SET_M_X 248 // Minute zone top-left X
+#define ALARM_SET_BOX_Y 155
+#define ALARM_SET_BOX_H 65
+#define ALARM_SET_BOX_W 80
+
 
 extern unsigned long alarmAreaTouchStartTime; // millis() when touch in alarm area started
 extern bool alarmAreaTouchInProgress;         // Is touch currently held down in the area?
