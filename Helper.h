@@ -37,7 +37,7 @@ void drawButtonVisual(int x, int y, int w, int h, const char* label, uint16_t bg
 void handleTouchInput();
 void handleAlarmAreaTouch(); // <<< NEW: Placeholder for alarm area touch action
 void displaySetAlarmScreen(const struct tm* currentAlarmTime);
-
+void handleSetAlarmClock(int touchX, int touchY);
 // Time & Math
 void incrementLocalTime();
 int calculateFutureTimeNum(int currentHour, int currentMin, int currentSec, int secondsToAdd); // Kept for now
