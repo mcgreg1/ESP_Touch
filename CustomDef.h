@@ -4,7 +4,7 @@
 
 #define TOUCH_COORD_AREA_X 1
 #define TOUCH_COORD_AREA_Y 1
-#define TOUCH_COORD_AREA_W 80 // Adjust width as needed (e.g., for "T:480,480")
+#define TOUCH_COORD_AREA_W 180 // Adjust width as needed (e.g., for "T:480,480")
 #define TOUCH_COORD_AREA_H 12 // Adjust height as needed (default font size 1 height is ~8px + padding)
 // --- Library Includes ---
 // Include libraries needed for types used in declarations below
@@ -18,6 +18,7 @@
 #include <Arduino_GFX_Library.h>
 #include "Audio.h"
 #include "SD.h"
+
 
 // Include fonts here as they define types (GFXfont) needed by extern declarations
 #include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSansBold18pt7b.h"
@@ -74,7 +75,8 @@ enum ClockState {
     STATE_CONNECTING_WIFI,
     STATE_WAITING_FOR_NTP,
     STATE_RUNNING,
-    STATE_WIFI_NTP_FAILED,
+    STATE_WIFI_FAILED,
+    STATE_NTP_FAILED,
     STATE_PLAY_AUDIO,
     STATE_SETTING_ALARM,
     NUM_CLOCK_STATES        // just a counter of the total states, leave it last!!!      
@@ -111,6 +113,7 @@ extern TAMC_GT911 *ts_ptr; // Pointer Declaration
 
 // Touch Coordinate Display
 extern unsigned long lastTouchMillis;
+extern unsigned long elapsedTouchTime;
 extern const unsigned long touchDisplayTimeout;
 extern bool touchCoordsVisible;
 extern int lastDisplayedTouchX;
@@ -127,10 +130,8 @@ extern const GFXfont *font_freesans18;
 extern const GFXfont *font_freesans12;
 
 
-
 extern int activeStationIndex; // Index of the active station button (-1 for none)
 extern bool touchRegisteredThisPress;
-
 
 
 // --- Global Variables (Declarations) ---
@@ -183,6 +184,13 @@ extern bool alarmJustTriggered;
 #define OK_BUTTON_H       50
 #define OK_BUTTON_X       ((w - OK_BUTTON_W) / 2) // Centered X
 #define OK_BUTTON_Y       280
+// OK Button (Common for Set Time/Alarm screens)
+#define ACTIVATE_ALARM_BUTTON_W       200
+#define ACTIVATE_ALARM_BUTTON_H       50
+#define ACTIVATE_ALARM_BUTTON_X       ((w - ACTIVATE_ALARM_BUTTON_W) / 2) // Centered X
+#define ACTIVATE_ALARM_BUTTON_Y       360
+
+
 
 // Alarm Display Area (Main Screen - coordinates/dimensions for hitting the alarm display itself)
 #define ALARM_TIME_Y_OFFSET 15      // Approx space below factor line on main screen
@@ -229,17 +237,17 @@ extern const unsigned long alarmLongPressDuration; // Duration for long press
 #define DATE_Y      48
 
 #define CLOCK_X 100
-#define CLOCK_Y 140
+#define CLOCK_Y 170
 
 //Alarm Time Box
 #define ALARM_RECT_X 363
-#define ALARM_RECT_Y 230
+#define ALARM_RECT_Y 210
 #define ALARM_RECT_W 107
-#define ALARM_RECT_H 63
+#define ALARM_RECT_H 50
 
 
-#define CLOCK_RECT_X 100
-#define CLOCK_RECT_Y 90
+#define CLOCK_RECT_X CLOCK_X
+#define CLOCK_RECT_Y CLOCK_Y-50
 #define CLOCK_RECT_W 270
 #define CLOCK_RECT_H 60
 
@@ -275,4 +283,25 @@ extern const unsigned long alarmLongPressDuration; // Duration for long press
 // Define placeholder labels and corresponding stream URLs
 extern const char* station_labels[NUM_STATION_BUTTONS];
 extern const char* station_urls[NUM_STATION_BUTTONS];
+
+// --- New Volume Bar Defines ---
+// Position the bar to the left of the volume buttons
+#define VOL_BAR_GAP 5      // Gap between bar and buttons
+#define VOL_BAR_WIDTH (VOL_BUTTON_WIDTH / 2)
+// Bar should span the height of both buttons and the gap between them
+// Assuming VOL_BUTTON_UP_Y is above VOL_BUTTON_DOWN_Y
+#define VOL_BAR_HEIGHT ( (VOL_BUTTON_DOWN_Y + VOL_BUTTON_HEIGHT) - VOL_BUTTON_UP_Y )
+#define VOL_BAR_X      (VOL_BUTTON_DOWN_X - VOL_BAR_WIDTH - VOL_BAR_GAP)
+#define VOL_BAR_Y      VOL_BUTTON_UP_Y // Align top of bar with top of Vol Up button
+
+// --- Volume Level ---
+extern int currentVolume; // 0-21 (or your chosen range)
+#define MAX_VOLUME 21     // Max volume level
+
+#define PREFERENCES_NAMESPACE "fractalClock" // Namespace for your app's settings
+#define KEY_VOLUME "volume"
+#define KEY_ALARM_HOUR "alarmHour"
+#define KEY_ALARM_MIN "alarmMin"
+#define KEY_ALARM_SET "alarmSet"
+
 #endif
