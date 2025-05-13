@@ -15,7 +15,6 @@ bool InitWifiManager();
 bool InitSD();
 void InitAudio();
 void initializeColors(); 
-void initializeAlarm();
 void alarmActivated();
 
 // NTP
@@ -26,9 +25,11 @@ void resyncNTPTime();
 void ShowStaticFields(const struct tm* currentTime);
 void drawStationButton(int index, bool isActive); // Helper to draw one station button
 void drawVolumeButtons();                          // Helper to draw volume buttons
+void drawVolumeBar();
 void displayClock(const struct tm* currentTime, bool showFractals=false);
 void UpdateTouchCoordsDisplay();
 void displayMessageScreen(const char* line1, const char* line2 = nullptr, uint16_t color = WHITE);
+void displayAdditionalInfo (const char *info);
 
 // Drawing Utilities
 void centerText(const char *text, int y, uint16_t color, const GFXfont *font, uint8_t size);
@@ -42,5 +43,9 @@ void handleSetAlarmClock(int touchX, int touchY);
 void incrementLocalTime();
 int calculateFutureTimeNum(int currentHour, int currentMin, int currentSec, int secondsToAdd); // Kept for now
 void primeFactorsToString(int n, char* buffer, size_t bufferSize);
+
+//flash
+void loadSettingsFromFlash();
+void saveSettingsToFlash();
 
 #endif // HELPER_H
