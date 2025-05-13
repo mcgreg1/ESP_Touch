@@ -1,8 +1,9 @@
 #include "CustomDef.h" // Include defines and extern globals
 #include "Helper.h"    // Include function declarations
+#include <Preferences.h>
 
 // --- Global Variable DEFINITIONS ---
-
+Preferences preferences; 
 // WiFi
 const char *ssid = "Pandora2"; // Default, might be overwritten by WiFiManager
 const char *password = "LetMeIn#123"; // Default
@@ -23,6 +24,12 @@ bool alarmIsActive;
 bool needsFullRedraw = false;
 bool alarmJustTriggered = false;
 
+static int alarmColorIndex = 0;
+static uint16_t alarmColors[] = {RED, GREEN, WHITE, BLACK}; // Using defines from CustomDef.h
+static bool beepState = false; // For alternating beep
+static unsigned long alarmPatternMillis = 0; 
+int currentVolume; // 0-21 (or your chosen range)
+
 unsigned long alarmAreaTouchStartTime = 0;
 bool alarmAreaTouchInProgress = false;
 const unsigned long alarmLongPressDuration = 1500; // 1.5 seconds in ms
@@ -38,7 +45,8 @@ const char *ClockStateNames[NUM_CLOCK_STATES] = {
     "Connecting WiFi",    // STATE_CONNECTING_WIFI
     "Waiting for NTP",    // STATE_WAITING_FOR_NTP
     "Running",            // STATE_RUNNING
-    "WiFi/NTP Failed",     // STATE_WIFI_NTP_FAILED
+    "WiFi Failed",     // STATE_WIFI_NTP_FAILED
+    "NTP Failed",     // STATE_WIFI_NTP_FAILED
     "Setting Alarm",
     "Play Audio"
 };
@@ -64,6 +72,7 @@ ClockState currentClockState = STATE_BOOTING;
 ClockState lastClockState = STATE_BOOTING;
 // Touch Coordinate Display
 unsigned long lastTouchMillis = 0;
+unsigned long elapsedTouchTime = 0;
 const unsigned long touchDisplayTimeout = 1500;
 bool touchCoordsVisible = true;
 int lastDisplayedTouchX = 0;
@@ -75,6 +84,7 @@ uint16_t prev_touch_coords_w = 0;
 uint16_t prev_touch_coords_h = 0;
 bool touchRegisteredThisPress = false; 
 bool wasTouchedPreviously = false;
+int activeStationIndex = -1; // No station active initially
 
 unsigned long lastButtonActionTime = 0; // Stores millis() when a button was last acted upon
 const unsigned long buttonDebounceDelay = 250; // Cooldown in milliseconds (adjust as needed)
@@ -285,7 +295,7 @@ void InitAudio() {
         Serial.println("  Setting audio task core to 0...");
         audio_ptr->setAudioTaskCore(0); 
         audio_ptr->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-        audio_ptr->setVolume(5);//FIXME: remember the last audio
+        audio_ptr->setVolume(currentVolume);
         Serial.println("Audio Initialized!");
     }
 
@@ -373,8 +383,6 @@ bool syncNTPTime() {
 #include "Helper.h"
 #include <math.h> // Include for fabs()
 
-// ... other includes and global definitions ...
-
 void resyncNTPTime() {
     Serial.println("FUNCTION: resyncNTPTime");
     if (currentClockState != STATE_RUNNING) {
@@ -384,7 +392,7 @@ void resyncNTPTime() {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("  Skipped: WiFi disconnected.");
       timeSynchronized = false; // Mark as unsynced if WiFi lost
-      currentClockState = STATE_WIFI_NTP_FAILED;
+      currentClockState = STATE_WIFI_FAILED;
       displayMessageScreen("WiFi Lost", "Check Network", RED); // Show message
       return;
     }
@@ -423,22 +431,6 @@ void resyncNTPTime() {
     Serial.println("FUNCTION END: resyncNTPTime");
 }
 
-// Add an initialization function if not already present, or add to existing init
-void initializeAlarm() {
-    Serial.println("Initializing Alarm Variables");
-    alarmTime = {0}; // Zero out struct
-    alarmTime.tm_hour = 7;
-    alarmTime.tm_min = 0;
-    isAlarmSet = false; // Default to off
-}
-
-// In Helper.cpp
-
-// In Helper.cpp
-
-// Draws static elements AND initial alarm time display (Right Aligned w/ Box)
-// In Helper.cpp
-
 // Draws static elements (Date, Weekday), initial alarm time display, AND initial button states
 void ShowStaticFields(const struct tm* currentTime) {
     Serial.println("FUNCTION: ShowStaticFields");
@@ -446,7 +438,8 @@ void ShowStaticFields(const struct tm* currentTime) {
 
     // --- Fonts Used ---
     const GFXfont *staticFieldFont = font_freesansbold18; // For Date/Weekday
-    const GFXfont *alarmFont = font_freesans18;       // Font for Alarm Label and Time
+    const GFXfont *inactiveAlarmFont = font_freesans18; // For Date/Weekday
+    const GFXfont *alarmFont = font_freesans12;       // Font for Alarm Label and Time
 
 
     char buffer[40];
@@ -456,29 +449,42 @@ void ShowStaticFields(const struct tm* currentTime) {
     snprintf(buffer, sizeof(buffer), "%d. %s %d", currentTime->tm_mday, Monate[currentTime->tm_mon], currentTime->tm_year + 1900);
     centerText(buffer, DATE_Y, RGB565_LIGHT_GREY, staticFieldFont, 1);
 
-    // --- Draw Rectangle ---
-    gfx->drawRect(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, COLOR_ALARM_TIME_INACTIVE);
-
-    // --- Draw "Alarm:" Text ---
     gfx->setFont(alarmFont); 
     gfx->setTextSize(1); 
-    gfx->setTextColor(COLOR_ALARM_TIME_INACTIVE);
-    gfx->setCursor(ALARM_RECT_X+3, ALARM_RECT_Y+ALARM_RECT_H/2-1);
+    gfx->setCursor(ALARM_RECT_X+22, ALARM_RECT_Y-6);
     gfx->print(ALARM_LABEL);
-
-    // --- Draw "HH:MM" Text ---
     char alarmStrTime[6];
     snprintf(alarmStrTime, sizeof(alarmStrTime), "%02d:%02d", alarmTime.tm_hour, alarmTime.tm_min);
-    gfx->setCursor(ALARM_RECT_X+10, ALARM_RECT_Y+ALARM_RECT_H-5);
-    gfx->print(alarmStrTime);
+    if (isAlarmSet)
+    {
+      drawButtonVisual(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, alarmStrTime, RED, WHITE, staticFieldFont, 1);
+      //gfx->drawRect(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, COLOR_ALARM_TIME_ACTIVE);
+      //gfx->fillRect(ALARM_RECT_X+2, ALARM_RECT_Y+2, ALARM_RECT_W-4, ALARM_RECT_H-4, RED)
+      //gfx->setTextColor(COLOR_ALARM_TIME_ACTIVE);
+    }
+    else
+    {
+      drawButtonVisual(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, alarmStrTime, COLOR_BUTTON_BG_IDLE, WHITE, inactiveAlarmFont, 1);
+      /*
+      gfx->drawRect(ALARM_RECT_X, ALARM_RECT_Y, ALARM_RECT_W, ALARM_RECT_H, COLOR_ALARM_TIME_INACTIVE);
+      gfx->setTextColor(COLOR_ALARM_TIME_INACTIVE);
+      gfx->setCursor(ALARM_RECT_X+10, ALARM_RECT_Y+ALARM_RECT_H-5);
+      gfx->print(alarmStrTime);
+      gfx->setCursor(ALARM_RECT_X+3, ALARM_RECT_Y+ALARM_RECT_H/2-1);
+      gfx->print(ALARM_LABEL);
+      */
+    }
 
-    // --- Draw Buttons (Bottom Part) --- <<< ADDED BACK
+
+
+    // --- Draw Buttons (Bottom Part)
     Serial.println("  Drawing initial button states...");
     for (int i = 0; i < NUM_STATION_BUTTONS; ++i) {
         // Pass the current active state from the global variable
         drawStationButton(i, (i == activeStationIndex));
     }
     drawVolumeButtons(); // Draw volume buttons
+
 
     Serial.println("FUNCTION END: ShowStaticFields");
 }
@@ -499,7 +505,10 @@ void handleTouchInput() {
       lastButtonActionTime = currentMillis;
       Serial.println("Touch TOUCHED");
       if (isAlarmSet && alarmIsActive)
+      {
         alarmIsActive=false;
+        needsFullRedraw=true;
+      }
           bool actionProcessed = false;
         // Get INVERTED coordinates
         int touchX = 480 - ts_ptr->points[0].x;
@@ -537,7 +546,10 @@ void handleTouchInput() {
             radioIndex=3;
 
           else 
+          {
             radioIndex=-1;
+            
+          }
 
 
         if (radioIndex!=-1)
@@ -549,6 +561,8 @@ void handleTouchInput() {
                 activeStationIndex = -1;
                 audio_ptr->stopSong();
                 drawStationButton(radioIndex, false); // Redraw as inactive
+                displayAdditionalInfo(NULL);
+                drawVolumeBar();
             }
             else { /* ... Activate ... */ 
                 Serial.printf("  Activating station: %s\n", station_labels[radioIndex]);
@@ -558,6 +572,7 @@ void handleTouchInput() {
                 }
                 activeStationIndex = radioIndex;
                 drawStationButton(radioIndex, true); // Redraw new button as active
+                drawVolumeBar();
 
                 Serial.printf("  Connecting to host: %s\n", station_urls[radioIndex]);
                 if (!audio_ptr->connecttohost(station_urls[radioIndex])) {
@@ -578,18 +593,26 @@ void handleTouchInput() {
             touchY >= VOL_BUTTON_DOWN_Y && touchY < (VOL_BUTTON_DOWN_Y + VOL_BUTTON_HEIGHT))
         {
             Serial.println("Volume Down Action.");
-            int currentVolume = audio_ptr->getVolume();
-            if (currentVolume > 0) audio_ptr->setVolume(currentVolume - 1);
+            currentVolume = audio_ptr->getVolume();
+            if (currentVolume > 0) 
+              currentVolume--;
+            audio_ptr->setVolume(currentVolume);
+            saveSettingsToFlash();
             Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
+            drawVolumeBar();
         }
         // Volume Up
         else if (touchX >= VOL_BUTTON_UP_X && touchX < (VOL_BUTTON_UP_X + VOL_BUTTON_WIDTH) &&
                   touchY >= VOL_BUTTON_UP_Y && touchY < (VOL_BUTTON_UP_Y + VOL_BUTTON_HEIGHT))
         {
               Serial.println("Volume Up Action.");
-              int currentVolume = audio_ptr->getVolume();
-              if (currentVolume < 21) audio_ptr->setVolume(currentVolume + 1);
+              currentVolume = audio_ptr->getVolume();
+              if (currentVolume < MAX_VOLUME) 
+                currentVolume++;
+              audio_ptr->setVolume(currentVolume);
+              saveSettingsToFlash();
               Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
+              drawVolumeBar();
         }
     
 
@@ -629,7 +652,7 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
 
 
     if (strcmp(timeStr, previousTimeStr) != 0) {
-        gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H+60, BLACK); 
+        gfx->fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, BLACK); 
         strcpy(previousTimeStr, timeStr);
         gfx->setCursor(CLOCK_X, CLOCK_Y);
         gfx->setTextColor(WHITE);
@@ -640,11 +663,12 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
         gfx->print(timeStr);
         
         //show uptime
+        /*
         gfx->setTextSize(1);
         gfx->setCursor(CLOCK_X, CLOCK_Y+40);
         char uptimeStr[16];
         snprintf(uptimeStr, sizeof(uptimeStr), "Uptime %d min.", millis()/1000/60);
-        gfx->print(uptimeStr);
+        gfx->print(uptimeStr);*/
         if (showFractals)
         {
             int timeNum = currentTime->tm_hour * 10000 + currentTime->tm_min * 100 + currentTime->tm_sec;
@@ -664,10 +688,42 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
     }
 
 }
+
+void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
+    if (!gfx) return;
+    gfx->fillScreen(BLACK);
+    Serial.println("FUNCTION: displaySetAlarmScreen");
+    const GFXfont *mainFont = font_freesansbold18; // Large time display
+    const GFXfont *promptFont = font_freesans18;   // Instructions
+    const GFXfont *buttonFont = font_freesansbold18;// OK button text
+    char alarmSet[6]; 
+    snprintf(alarmSet, sizeof(alarmSet), "%02d:%02d", currentAlarmTime->tm_hour, currentAlarmTime->tm_min);
+    centerText(alarmSet, ALARM_SET_BOX_Y+5, WHITE, mainFont, 2);//in the box (5px space)
+    centerText("Alarmzeit einstellen", ALARM_SET_BOX_Y+ALARM_SET_BOX_H+3, RGB565_LIGHT_GREY, promptFont, 1);//3 px below the box
+
+    //drawButtonVisual(OK_BUTTON_X, y_ok_button_top, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
+    drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
+    if (isAlarmSet)
+      drawButtonVisual(ACTIVATE_ALARM_BUTTON_X, ACTIVATE_ALARM_BUTTON_Y, ACTIVATE_ALARM_BUTTON_W, ACTIVATE_ALARM_BUTTON_H, "AKTIV", RED, BLACK, buttonFont, 1);
+    else
+      drawButtonVisual(ACTIVATE_ALARM_BUTTON_X, ACTIVATE_ALARM_BUTTON_Y, ACTIVATE_ALARM_BUTTON_W, ACTIVATE_ALARM_BUTTON_H, "INAKTIV", DARKGREY, BLACK, buttonFont, 1);
+
+    // Hour Zone Indicator
+    gfx->drawRect(ALARM_SET_H_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);//the y is the top of the rect
+    centerText("HH+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
+
+    // Minute Zone Indicator
+    gfx->drawRect(ALARM_SET_M_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);
+    centerText("MM+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
+
+
+    Serial.println("FUNCTION END: displaySetAlarmScreen");
+}
+
 void handleSetAlarmClock(int touchX, int touchY)
 {
 // --- Check Touch Zones using DEFINED COORDINATES ---
-// Hour Zone Check
+  const GFXfont *buttonFont = font_freesansbold18;// OK button text
   if (touchX >= ALARM_SET_H_X && touchX < ALARM_SET_H_X + ALARM_SET_BOX_W &&
       touchY >= ALARM_SET_BOX_Y && touchY < ALARM_SET_BOX_Y + ALARM_SET_BOX_H) {
       Serial.println("Alarm Hour Zone Touched");
@@ -681,14 +737,28 @@ void handleSetAlarmClock(int touchX, int touchY)
       alarmTime.tm_min = (alarmTime.tm_min + 1) % 60;
       displaySetAlarmScreen(&alarmTime); // Redraw screen
   }
-  // OK Button Check (Using calculated Y)
+  // OK Button Check
   else if (touchX >= OK_BUTTON_X && touchX < (OK_BUTTON_X + OK_BUTTON_W) &&
           touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
       Serial.println("Alarm OK Button Touched");
       alarmJustTriggered = false;
       currentClockState = STATE_RUNNING;
       needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
+      saveSettingsToFlash();
   }
+  
+  // Set/UnSet Alarm Button Check
+  else if (touchX >= ACTIVATE_ALARM_BUTTON_X && touchX < (ACTIVATE_ALARM_BUTTON_X + ACTIVATE_ALARM_BUTTON_W) &&
+          touchY >= ACTIVATE_ALARM_BUTTON_Y && touchY < (ACTIVATE_ALARM_BUTTON_Y + ACTIVATE_ALARM_BUTTON_H)) {
+      Serial.println("Alarm Set Button Touched");
+      isAlarmSet = !isAlarmSet;
+      Serial.println(isAlarmSet);
+    if (isAlarmSet)
+      drawButtonVisual(ACTIVATE_ALARM_BUTTON_X, ACTIVATE_ALARM_BUTTON_Y, ACTIVATE_ALARM_BUTTON_W, ACTIVATE_ALARM_BUTTON_H, "AKTIV", RED, BLACK, buttonFont, 1);
+    else
+      drawButtonVisual(ACTIVATE_ALARM_BUTTON_X, ACTIVATE_ALARM_BUTTON_Y, ACTIVATE_ALARM_BUTTON_W, ACTIVATE_ALARM_BUTTON_H, "INAKTIV", DARKGREY, BLACK, buttonFont, 1);
+  }
+  
 }
 void displayMessageScreen(const char* line1, const char* line2, uint16_t color) {
     Serial.printf("FUNCTION: displayMessageScreen - L1: %s, L2: %s\n", line1, line2 ? line2 : "NULL");
@@ -734,12 +804,6 @@ void centerText(const char *text, int y, uint16_t color, const GFXfont *font, ui
     gfx->print(text);
 }
 
-// In Helper.cpp
-
-// In Helper.cpp
-
-
-// --- Placeholder Function for Alarm Area Touch ---
 void handleAlarmAreaTouch() {
     Serial.println("FUNCTION: handleAlarmAreaTouch");
     Serial.println("  Alarm Area Touched! Transitioning to Set Alarm state..."); // Example action
@@ -750,45 +814,79 @@ void handleAlarmAreaTouch() {
     displaySetAlarmScreen(&alarmTime); // Display the setting screen immediately
 }
 
-// --- Alarm Callback Function ---
+
 void alarmActivated() {
-    // ... (Existing function) ...
-    Serial.println("!!!!!!!!!!!!!!!!!!!!!!");
-    Serial.println("!!!!! ALARM ACTIVE !!!!!");
-    Serial.println("!!!!!!!!!!!!!!!!!!!!!!");
-    alarmIsActive=true;
+    if (!gfx) return; // Safety check
+    static unsigned long alarmPatternMillis = 0; // Stays here, initialized once
+    unsigned long currentMillis = millis();
+
+    // This function is called REPEATEDLY while alarm conditions are met.
+    // alarmIsActive flag controls if we are in the "sounding/flashing" phase.
+
+    if (!alarmIsActive) { // First time condition is met this minute
+        Serial.println("!!! ALARM ACTIVATED - Starting Pattern !!!");
+        alarmIsActive = true;
+        alarmColorIndex = 0; // Reset color pattern
+        // beepState = false;     // Reset beep pattern for later
+        alarmPatternMillis = currentMillis; // Start pattern timer
+        // Optionally, stop any other audio
+        if (audio_ptr && audio_ptr->isRunning()) {
+            audio_ptr->stopSong();
+        }
+        // Force an immediate first flash and time display
+        gfx->fillScreen(alarmColors[alarmColorIndex]); // Initial background color
+        alarmColorIndex = (alarmColorIndex + 1) % (sizeof(alarmColors) / sizeof(alarmColors[0]));
+    }
+
+    // Handle flashing background and re-drawing time every ~500ms
+    if (alarmIsActive && (currentMillis - alarmPatternMillis >= 2000)) { // Interval for flashing
+        alarmPatternMillis = currentMillis;
+
+        // --- Flashing Background ---
+        gfx->fillScreen(alarmColors[alarmColorIndex]);
+        Serial.printf("  Alarm Flash: Color Index %d\n", alarmColorIndex);
+        // (Beep logic would go here later)
+
+        alarmColorIndex = (alarmColorIndex + 1) % (sizeof(alarmColors) / sizeof(alarmColors[0]));
+        //audio_ptr->connecttoMem(ANNOYING_BEEP_Yi6_wav, ANNOYING_BEEP_Yi6_wav_len);
+    }
+
+    // --- Display Time (HH:MM) - Redraw if active, potentially on top of new background ---
+    // This part now runs every time alarmActivated is called while alarmIsActive is true,
+    // ensuring the time is redrawn on top of any background color change.
+    if (alarmIsActive) {
+        const GFXfont *alarmTimeFont = font_freesansbold18; // Use a large bold font
+        uint8_t alarmTimeFontSize = 3; // << CHOOSE A LARGE SIZE (e.g., 2, 3, or 4)
+
+        char timeStr[6]; // HH:MM + null
+        snprintf(timeStr, sizeof(timeStr), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+
+        // Calculate center position for the large time
+        int16_t x1, y1;
+        uint16_t text_w, text_h;
+        gfx->setFont(alarmTimeFont);
+        gfx->setTextSize(alarmTimeFontSize);
+        gfx->getTextBounds(timeStr, 0, 0, &x1, &y1, &text_w, &text_h);
+
+        int text_x_center = (w - text_w) / 2;
+        int text_y_center_top = (h - text_h) / 2; // Target top edge for centering text block
+
+        // Determine text color for contrast against current background
+        uint16_t textColor;
+        // Current background color is alarmColors[ (alarmColorIndex -1 + num_colors) % num_colors ]
+        // because alarmColorIndex was already incremented for the *next* background
+        int currentBgColorIndex = (alarmColorIndex == 0) ? ((sizeof(alarmColors) / sizeof(alarmColors[0])) - 1) : (alarmColorIndex - 1);
+        if (alarmColors[currentBgColorIndex] == BLACK || alarmColors[currentBgColorIndex] == RED) {
+            textColor = WHITE;
+        } else {
+            textColor = BLACK;
+        }
+
+        // Use centerText to draw it (it handles baseline adjustment)
+        centerText(timeStr, text_y_center_top, textColor, alarmTimeFont, alarmTimeFontSize);
+    }
 }
-// In Helper.cpp
 
-// In Helper.cpp
-
-void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
-    if (!gfx) return;
-    gfx->fillScreen(BLACK);
-    Serial.println("FUNCTION: displaySetAlarmScreen");
-    const GFXfont *mainFont = font_freesansbold18; // Large time display
-    const GFXfont *promptFont = font_freesans18;   // Instructions
-    const GFXfont *buttonFont = font_freesansbold18;// OK button text
-    char alarmSet[6]; 
-    snprintf(alarmSet, sizeof(alarmSet), "%02d:%02d", currentAlarmTime->tm_hour, currentAlarmTime->tm_min);
-    centerText(alarmSet, ALARM_SET_BOX_Y+5, WHITE, mainFont, 2);//in the box (5px space)
-    centerText("Alarmzeit einstellen", ALARM_SET_BOX_Y+ALARM_SET_BOX_H+3, RGB565_LIGHT_GREY, promptFont, 1);//3 px below the box
-
-    //drawButtonVisual(OK_BUTTON_X, y_ok_button_top, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
-    drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
-    drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y+100, OK_BUTTON_W, OK_BUTTON_H, "ALARM", GREEN, BLACK, buttonFont, 1);
-
-    // Hour Zone Indicator
-    gfx->drawRect(ALARM_SET_H_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);//the y is the top of the rect
-    centerText("HH+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
-
-    // Minute Zone Indicator
-    gfx->drawRect(ALARM_SET_M_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);
-    centerText("MM+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
-
-
-    Serial.println("FUNCTION END: displaySetAlarmScreen");
-}
 
 void UpdateTouchCoordsDisplay() {
     if (!gfx) return;
@@ -830,8 +928,12 @@ void UpdateTouchCoordsDisplay() {
             int cursorX = TOUCH_COORD_AREA_X - x1; // Adjust slightly for font's internal padding
             int cursorY = TOUCH_COORD_AREA_Y - y1; // Adjust for font's top bearing
             gfx->setCursor(cursorX, cursorY);
-            gfx->print(currentCoordsStr);
+            //gfx->print(currentCoordsStr);
+            char uptimeStr[32];
+            snprintf(uptimeStr, sizeof(uptimeStr), "%s, Uptime %d min.", currentCoordsStr, millis()/1000/60);
+            gfx->print(uptimeStr);
         }
+
         strcpy(previousTouchCoordsStr, currentCoordsStr);
     }
 }
@@ -891,7 +993,7 @@ const char* station_urls[NUM_STATION_BUTTONS] = { // Example URLs - REPLACE WITH
     "http://stream.antenne.de/antenne/stream/mp3", // Example, check format
     "http://streams.br.de/br24_2.m3u" // Example, check format
 };
-int activeStationIndex = -1; // No station active initially
+
 
 // Generic function to draw a button's visual appearance
 // Generic function to draw a button's visual appearance
@@ -939,10 +1041,10 @@ void drawStationButton(int index, bool isActive) {
                      font_freesans18, 1); // Using FreeSans18pt font
 }
 
-// Helper function to draw the volume buttons
 void drawVolumeButtons() {
 
-    // Draw Volume Down
+      drawVolumeBar();
+
     drawButtonVisual(VOL_BUTTON_DOWN_X, VOL_BUTTON_DOWN_Y, VOL_BUTTON_WIDTH, VOL_BUTTON_HEIGHT,
                      VOL_DOWN_LABEL, COLOR_BUTTON_BG_IDLE, COLOR_BUTTON_TEXT,
                      font_freesansbold18, 2); // Larger font for +/-
@@ -952,5 +1054,152 @@ void drawVolumeButtons() {
                      VOL_UP_LABEL, COLOR_BUTTON_BG_IDLE, COLOR_BUTTON_TEXT,
                      font_freesansbold18, 2); // Larger font for +/-
 }
+void drawVolumeBar()
+{
+      Serial.println("  Drawing Volume Buttons and Bar...");
 
 
+    // fill of volume depending if radio active or not
+    int volumeColor=DARKGREY;
+    if (activeStationIndex!=-1)
+      volumeColor=GREEN;
+    // --- 1. Draw Volume Bar 
+    // Outline
+
+      gfx->drawRect(VOL_BAR_X, VOL_BAR_Y, VOL_BAR_WIDTH, VOL_BAR_HEIGHT, WHITE);
+
+      // Calculate Filled Height for the Bar
+      int bar_inner_margin = 2; // Small margin inside the outline
+      int bar_fillable_width = VOL_BAR_WIDTH - (bar_inner_margin * 2);
+      int bar_fillable_height = VOL_BAR_HEIGHT - (bar_inner_margin * 2);
+      int fill_height = 0;
+
+      if (MAX_VOLUME > 0 && bar_fillable_height > 0) { // Avoid division by zero and ensure positive height
+          fill_height = map(currentVolume, 0, MAX_VOLUME, 0, bar_fillable_height);
+          if (fill_height < 0) fill_height = 0; // Sanity check
+          if (fill_height > bar_fillable_height) fill_height = bar_fillable_height;
+      }
+
+      // Clear previous fill inside the bar (only the fillable area)
+      gfx->fillRect(VOL_BAR_X + bar_inner_margin,
+                    VOL_BAR_Y + bar_inner_margin,
+                    bar_fillable_width,
+                    bar_fillable_height,
+                    BLACK);
+
+      // Draw Current Volume Fill (from the bottom up)
+      if (fill_height > 0) {
+          gfx->fillRect(VOL_BAR_X + bar_inner_margin,              // X (inside outline)
+                        VOL_BAR_Y + bar_inner_margin + (bar_fillable_height - fill_height), // Y (from bottom up)
+                        bar_fillable_width,                        // Width (inside outline)
+                        fill_height,                               // Calculated fill height
+                        volumeColor);                                    // Fill color
+      }
+}
+void displayAdditionalInfo(const char *info)
+{
+    int letterPos = 295;
+    int boxPos = letterPos - 20;
+    if (info==NULL)
+    {
+      gfx->fillRect(0, boxPos, 480, 50, BLACK);
+      return;
+    }
+    const int MaxStringLength = 40;
+    String interpret;
+    String song;
+    
+    Serial.print("streamtitle ");
+    String infoStr = info;
+
+    // Replace umlauts
+    infoStr.replace("ü", "ue");
+    infoStr.replace("ö", "oe");
+    infoStr.replace("ä", "ae");
+    infoStr.replace("ß", "ss");
+    infoStr.replace("Ü", "Ue");
+    infoStr.replace("Ö", "Oe");
+    infoStr.replace("Ä", "Ae");
+
+    Serial.println(infoStr);
+
+    // Use last index of '-' as delimiter
+    int delim = infoStr.lastIndexOf('-');
+    if (delim == -1)
+        delim = infoStr.lastIndexOf(':');
+
+    if (delim == -1 || delim > MaxStringLength)
+    {
+        // No delimiter: split into two parts manually
+        interpret = infoStr.substring(0, MaxStringLength);
+        song = infoStr.substring(MaxStringLength, MaxStringLength * 2);
+    }
+    else
+    {
+        // Split based on delimiter (trim removes surrounding spaces)
+        interpret = infoStr.substring(0, delim);
+        song = infoStr.substring(delim + 1);
+        
+        // Limit length
+        interpret = interpret.substring(0, MaxStringLength);
+        song = song.substring(0, MaxStringLength);
+    }
+
+
+
+    // Clear the area first
+    gfx->fillRect(0, boxPos, 480, 50, BLACK);
+
+    // Display Radio Info
+    const GFXfont *radioFont = font_freesans12;
+    gfx->setCursor(5, letterPos);
+    gfx->setFont(radioFont);
+    gfx->setTextSize(1);
+    gfx->setTextColor(WHITE);
+    gfx->print(interpret);
+    gfx->setCursor(5, letterPos + 24);
+    gfx->print(song);
+}
+
+void loadSettingsFromFlash() {
+    Serial.println("FUNCTION: loadSettingsFromFlash");
+    preferences.begin(PREFERENCES_NAMESPACE, false); // false = read/write mode
+
+    // Load Volume (with a default if not found)
+    currentVolume = preferences.getInt(KEY_VOLUME, 10); // Default to volume 10
+    Serial.printf("  Loaded Volume: %d\n", currentVolume);
+
+    // Load Alarm Set status (with a default)
+    isAlarmSet = preferences.getBool(KEY_ALARM_SET, false); // Default to alarm off
+    Serial.printf("  Loaded isAlarmSet: %s\n", isAlarmSet ? "true" : "false");
+
+    // Load Alarm Time (with defaults if not found)
+    alarmTime.tm_hour = preferences.getInt(KEY_ALARM_HOUR, 7);  // Default 07:00
+    alarmTime.tm_min = preferences.getInt(KEY_ALARM_MIN, 0);
+    alarmTime.tm_sec = 0; // Seconds usually not set for alarms
+    // You might want to load/save tm_wday, tm_mday, tm_mon, tm_year if you have more complex alarms
+    // For now, these will be set by mktime() when the clock is running or if you add a date setting feature.
+    mktime(&alarmTime); // Normalize the struct (calculates weekday, etc. for the default date)
+
+    Serial.printf("  Loaded Alarm Time: %02d:%02d, Set: %s\n", alarmTime.tm_hour, alarmTime.tm_min, isAlarmSet ? "ON" : "OFF");
+
+    preferences.end(); // Close the preferences
+    Serial.println("FUNCTION END: loadSettingsFromFlash");
+}
+
+void saveSettingsToFlash() {
+    Serial.println("FUNCTION: saveSettingsToFlash");
+    preferences.begin(PREFERENCES_NAMESPACE, false); // false = read/write mode
+
+    preferences.putInt(KEY_VOLUME, currentVolume);
+    preferences.putBool(KEY_ALARM_SET, isAlarmSet);
+    preferences.putInt(KEY_ALARM_HOUR, alarmTime.tm_hour);
+    preferences.putInt(KEY_ALARM_MIN, alarmTime.tm_min);
+    // preferences.putInt(KEY_ALARM_WDAY, alarmTime.tm_wday); // If saving weekday
+
+    Serial.printf("  Saved Volume: %d\n", currentVolume);
+    Serial.printf("  Saved Alarm Time: %02d:%02d, Set: %s\n", alarmTime.tm_hour, alarmTime.tm_min, isAlarmSet ? "ON" : "OFF");
+
+    preferences.end(); // Close the preferences
+    Serial.println("FUNCTION END: saveSettingsToFlash");
+}
