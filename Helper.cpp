@@ -12,7 +12,7 @@ const char *password = "LetMeIn#123"; // Default
 const char *ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
-const long ntpSyncInterval = 15 * 60 * 1000;
+const long ntpSyncInterval = 5 * 60 * 1000;
 
 // Timekeeping
 const long interval = 1000;
@@ -34,6 +34,9 @@ unsigned long alarmAreaTouchStartTime = 0;
 bool alarmAreaTouchInProgress = false;
 const unsigned long alarmLongPressDuration = 1500; // 1.5 seconds in ms
 
+unsigned long lastWifiReconnectAttemptMillis = 0;
+int wifiReconnectAttemptCount = 0; // Counter for backoff stages
+
 // German Days/Months
 const char *Wochentage[] = {"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"};
 const char *Monate[] = {"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"};
@@ -48,8 +51,11 @@ const char *ClockStateNames[NUM_CLOCK_STATES] = {
     "WiFi Failed",     // STATE_WIFI_NTP_FAILED
     "NTP Failed",     // STATE_WIFI_NTP_FAILED
     "Setting Alarm",
+    "Setting Clock",
     "Play Audio"
 };
+
+
 
 // Other Globals
 bool firstDisplayDone = false;
@@ -82,7 +88,6 @@ uint16_t prev_touch_coords_x = 0;
 uint16_t prev_touch_coords_y = 0;
 uint16_t prev_touch_coords_w = 0;
 uint16_t prev_touch_coords_h = 0;
-bool touchRegisteredThisPress = false; 
 bool wasTouchedPreviously = false;
 int activeStationIndex = -1; // No station active initially
 
@@ -323,12 +328,6 @@ bool InitWifiManager() {
 
     // Set timeout for trying saved credentials (remains short)
     wifiManager.setConnectTimeout(10); // 10 seconds
-
-    // *** ADDED: Set timeout for the configuration portal itself ***
-    // If it can't connect to saved creds, it will start the portal,
-    // but only keep it running for 120 seconds (2 minutes).
-    // After this, autoConnect will return false if no connection was made.
-    // Adjust timeout as needed.
     wifiManager.setConfigPortalTimeout(120);
 
     displayMessageScreen("Config WiFi", "Connect: FractalClockAP", WHITE);
@@ -393,7 +392,8 @@ void resyncNTPTime() {
       Serial.println("  Skipped: WiFi disconnected.");
       timeSynchronized = false; // Mark as unsynced if WiFi lost
       currentClockState = STATE_WIFI_FAILED;
-      displayMessageScreen("WiFi Lost", "Check Network", RED); // Show message
+      displayAdditionalInfo("WiFi Lost - Check Network", RED);
+      //displayMessageScreen("WiFi Lost", "Check Network", RED); // Show message
       return;
     }
 
@@ -441,14 +441,15 @@ void ShowStaticFields(const struct tm* currentTime) {
     const GFXfont *inactiveAlarmFont = font_freesans18; // For Date/Weekday
     const GFXfont *alarmFont = font_freesans12;       // Font for Alarm Label and Time
 
-
+  if (currentClockState == STATE_RUNNING)
+  { 
     char buffer[40];
     snprintf(buffer, sizeof(buffer), "%s,", Wochentage[currentTime->tm_wday]);
     centerText(buffer, WEEKDAY_Y, RGB565_LIGHT_GREY, staticFieldFont, 1);
 
     snprintf(buffer, sizeof(buffer), "%d. %s %d", currentTime->tm_mday, Monate[currentTime->tm_mon], currentTime->tm_year + 1900);
     centerText(buffer, DATE_Y, RGB565_LIGHT_GREY, staticFieldFont, 1);
-
+  }
     gfx->setFont(alarmFont); 
     gfx->setTextSize(1); 
     gfx->setCursor(ALARM_RECT_X+22, ALARM_RECT_Y-6);
@@ -475,7 +476,8 @@ void ShowStaticFields(const struct tm* currentTime) {
       */
     }
 
-
+  if (currentClockState == STATE_RUNNING)
+  {
 
     // --- Draw Buttons (Bottom Part)
     Serial.println("  Drawing initial button states...");
@@ -484,7 +486,7 @@ void ShowStaticFields(const struct tm* currentTime) {
         drawStationButton(i, (i == activeStationIndex));
     }
     drawVolumeButtons(); // Draw volume buttons
-
+  }
 
     Serial.println("FUNCTION END: ShowStaticFields");
 }
@@ -561,7 +563,7 @@ void handleTouchInput() {
                 activeStationIndex = -1;
                 audio_ptr->stopSong();
                 drawStationButton(radioIndex, false); // Redraw as inactive
-                displayAdditionalInfo(NULL);
+                displayAdditionalInfo(NULL, WHITE);
                 drawVolumeBar();
             }
             else { /* ... Activate ... */ 
@@ -615,7 +617,7 @@ void handleTouchInput() {
               drawVolumeBar();
         }
     
-
+        }//state is running
         // --- Check Alarm Area Touch ---
 
         if (touchX >= ALARM_RECT_X && touchX < (ALARM_RECT_X + ALARM_RECT_W) &&
@@ -623,10 +625,14 @@ void handleTouchInput() {
         {
             handleAlarmAreaTouch(); // Call the dedicated handler
         }
-        }//state is running
+
         else if (currentClockState == STATE_SETTING_ALARM) {
             Serial.println("Checking touches in SETTING_ALARM state");
                handleSetAlarmClock(touchX,touchY);
+            } // End state checks
+        else if (currentClockState == STATE_SETTING_CLOCK) {
+            Serial.println("Checking touches in SETTING_CLOCK state");
+               handleSetClock(touchX,touchY);
             } // End state checks
 
     } // End if (isTouchedNow)
@@ -636,7 +642,7 @@ void handleTouchInput() {
 
 void displayClock(const struct tm* currentTime, bool showFractals) {
      if (!gfx || currentTime == NULL) return;
-     if (currentClockState != STATE_RUNNING) return; // Only draw if running normally
+     //if (currentClockState != STATE_RUNNING) return; // Only draw if running normally
 
     static char previousTimeStr[9] = "";
     static int16_t prev_time_y = -1;
@@ -656,8 +662,7 @@ void displayClock(const struct tm* currentTime, bool showFractals) {
         strcpy(previousTimeStr, timeStr);
         gfx->setCursor(CLOCK_X, CLOCK_Y);
         gfx->setTextColor(WHITE);
-        
-        //centerText(timeStr, y_time_top_target, WHITE, timeFont, 2);
+
         gfx->setFont(timeFont); 
         gfx->setTextSize(2);
         gfx->print(timeStr);
@@ -720,6 +725,57 @@ void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
     Serial.println("FUNCTION END: displaySetAlarmScreen");
 }
 
+void displaySetClockScreen(const struct tm* currentTime) {
+    if (!gfx) return;
+    gfx->fillScreen(BLACK);
+    Serial.println("FUNCTION: displaySetClockScreen");
+    const GFXfont *mainFont = font_freesansbold18; // Large time display
+    const GFXfont *promptFont = font_freesans18;   // Instructions
+    const GFXfont *buttonFont = font_freesansbold18;// OK button text
+    char alarmSet[6]; 
+    snprintf(alarmSet, sizeof(alarmSet), "%02d:%02d", currentTime->tm_hour, currentTime->tm_min);
+    centerText(alarmSet, ALARM_SET_BOX_Y+5, WHITE, mainFont, 2);//in the box (5px space)
+    centerText("Uhrzeit einstellen", ALARM_SET_BOX_Y+ALARM_SET_BOX_H+3, RGB565_LIGHT_GREY, promptFont, 1);//3 px below the box
+
+    drawButtonVisual(OK_BUTTON_X, OK_BUTTON_Y, OK_BUTTON_W, OK_BUTTON_H, "OK", GREEN, BLACK, buttonFont, 1);
+
+    // Hour Zone Indicator
+    gfx->drawRect(ALARM_SET_H_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);//the y is the top of the rect
+    centerText("HH+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
+
+    // Minute Zone Indicator
+    gfx->drawRect(ALARM_SET_M_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);
+    centerText("MM+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
+
+
+    Serial.println("FUNCTION END: displaySetClockScreen");
+}
+void handleSetClock(int touchX, int touchY)
+{
+// --- Check Touch Zones using DEFINED COORDINATES ---
+  const GFXfont *buttonFont = font_freesansbold18;// OK button text
+  if (touchX >= ALARM_SET_H_X && touchX < ALARM_SET_H_X + ALARM_SET_BOX_W &&
+      touchY >= ALARM_SET_BOX_Y && touchY < ALARM_SET_BOX_Y + ALARM_SET_BOX_H) {
+      Serial.println("Hour Zone Touched");
+      timeinfo.tm_hour = (timeinfo.tm_hour + 1) % 24;
+      displaySetClockScreen(&timeinfo); // Redraw screen
+  }
+  // Minute Zone Check
+  else if (touchX >= ALARM_SET_M_X && touchX < ALARM_SET_M_X + ALARM_SET_BOX_W&&
+          touchY >= ALARM_SET_BOX_Y && touchY < ALARM_SET_BOX_Y + ALARM_SET_BOX_H) {
+      Serial.println("Minute Zone Touched");
+      timeinfo.tm_min = (timeinfo.tm_min + 1) % 60;
+      displaySetClockScreen(&timeinfo); // Redraw screen
+  }
+  // OK Button Check
+  else if (touchX >= OK_BUTTON_X && touchX < (OK_BUTTON_X + OK_BUTTON_W) &&
+          touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
+      Serial.println("OK Button Touched");
+      currentClockState = STATE_WIFI_FAILED;
+      needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
+  }
+}
+
 void handleSetAlarmClock(int touchX, int touchY)
 {
 // --- Check Touch Zones using DEFINED COORDINATES ---
@@ -742,7 +798,7 @@ void handleSetAlarmClock(int touchX, int touchY)
           touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
       Serial.println("Alarm OK Button Touched");
       alarmJustTriggered = false;
-      currentClockState = STATE_RUNNING;
+      currentClockState = lastClockState;
       needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
       saveSettingsToFlash();
   }
@@ -1096,7 +1152,7 @@ void drawVolumeBar()
                         volumeColor);                                    // Fill color
       }
 }
-void displayAdditionalInfo(const char *info)
+void displayAdditionalInfo(const char *info, int color)
 {
     int letterPos = 295;
     int boxPos = letterPos - 20;
@@ -1155,7 +1211,7 @@ void displayAdditionalInfo(const char *info)
     gfx->setCursor(5, letterPos);
     gfx->setFont(radioFont);
     gfx->setTextSize(1);
-    gfx->setTextColor(WHITE);
+    gfx->setTextColor(color);
     gfx->print(interpret);
     gfx->setCursor(5, letterPos + 24);
     gfx->print(song);
