@@ -67,7 +67,6 @@ extern Audio *audio_ptr;
 #define	SPI_SCK       48
 #define SPI_MISO      41
 
-// --- Clock States ---
 enum ClockState {
     STATE_BOOTING,
     STATE_INIT_WIFI,
@@ -77,8 +76,9 @@ enum ClockState {
     STATE_RUNNING,
     STATE_WIFI_FAILED,
     STATE_NTP_FAILED,
-    STATE_PLAY_AUDIO,
     STATE_SETTING_ALARM,
+    STATE_SETTING_CLOCK,
+    STATE_PLAY_AUDIO,
     NUM_CLOCK_STATES        // just a counter of the total states, leave it last!!!      
 };
 
@@ -103,6 +103,9 @@ extern const char *Wochentage[];
 extern const char *Monate[];
 extern unsigned long lastButtonActionTime;
 extern const unsigned long buttonDebounceDelay; // Make const accessible if needed elsewhere
+
+extern unsigned long lastWifiReconnectAttemptMillis;
+extern int wifiReconnectAttemptCount;
 
 // Colors
 extern uint16_t RGB565_LIGHT_GREY;
@@ -131,11 +134,17 @@ extern const GFXfont *font_freesans12;
 
 
 extern int activeStationIndex; // Index of the active station button (-1 for none)
-extern bool touchRegisteredThisPress;
 
 
-// --- Global Variables (Declarations) ---
-// ... existing externs ...
+const unsigned long WIFI_RECONNECT_INTERVALS[] = {
+    5 * 60 * 1000UL,   // 5 minutes
+    15 * 60 * 1000UL,  // 15 minutes
+    60 * 60 * 1000UL,  // 1 hour
+    6 * 60 * 1000UL,   // 6 hours
+    24 * 60 * 1000UL   // 24 hours (max interval)
+};
+const int NUM_WIFI_RECONNECT_INTERVALS = sizeof(WIFI_RECONNECT_INTERVALS) / sizeof(WIFI_RECONNECT_INTERVALS[0]);
+
 extern uint16_t COLOR_BUTTON_BG_IDLE;   // Color for inactive button
 extern uint16_t COLOR_BUTTON_BG_ACTIVE; // Color for active button
 extern uint16_t COLOR_BUTTON_TEXT;      // Color for button text
