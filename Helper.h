@@ -29,12 +29,14 @@ void drawVolumeBar();
 void displayClock(const struct tm* currentTime, bool showFractals=false);
 void UpdateTouchCoordsDisplay();
 void displayMessageScreen(const char* line1, const char* line2 = nullptr, uint16_t color = WHITE);
-void displayAdditionalInfo (const char *info);
+void displayAdditionalInfo(const char *info, int color);
 
 // Drawing Utilities
 void centerText(const char *text, int y, uint16_t color, const GFXfont *font, uint8_t size);
 void drawButtonVisual(int x, int y, int w, int h, const char* label, uint16_t bgColor, uint16_t textColor, const GFXfont* font, uint8_t size);
 // Input Handling
+void displaySetClockScreen(const struct tm* currentTime);
+void handleSetClock(int touchX, int touchY);
 void handleTouchInput();
 void handleAlarmAreaTouch(); // <<< NEW: Placeholder for alarm area touch action
 void displaySetAlarmScreen(const struct tm* currentAlarmTime);
