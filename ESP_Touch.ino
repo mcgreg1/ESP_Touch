@@ -1,3 +1,9 @@
+//TODO: 
+//1. FTP Server
+//2. Local File Playback
+//3. Bluetooth
+//4. Web Interface
+
 #include "CustomDef.h" // Includes, Defines, Extern Globals
 #include "Helper.h"    // Function Declarations
 
@@ -9,7 +15,7 @@ void setup() {
     InstantiateGfxAndTouchObjects(); // Creates gfx, bus, rgbpanel, ts_ptr objects
     InitDisplay();                   // Initializes gfx, sets w/h, clears screen, backlight
     InitTouch();                     // Initializes touch controller via I2C
-    //InitSD();
+    InitSD();
     InitAudio();
     initializeColors();
     Serial.println("INIT WIFI");
@@ -43,6 +49,7 @@ void setup() {
     }
     Serial.println("Setup Complete.");
     elapsedTouchTime=0;
+     
 }
 
 //after setup we are in running (all ok), ntp failed or wifi failed
@@ -64,7 +71,7 @@ void loop() {
          lastClockState=currentClockState;
     }
 
-    if (needsFullRedraw) 
+    if (needsFullRedraw && currentClockState != STATE_SETTING_ALARM) 
     {
       gfx->fillScreen(BLACK);
       //delay(100);
@@ -126,7 +133,7 @@ void loop() {
     if (currentClockState==STATE_RUNNING || currentClockState==STATE_NTP_FAILED || currentClockState==STATE_WIFI_FAILED)
     {
       // --- Update Display via Local Time Increment (Every Second) ---
-      if (currentMillis - previousMillis >= interval) {
+      if (currentMillis - previousMillis >= 1000) {
           previousMillis = currentMillis; // Reset the 1-second tick timer
 
         // --- Increment Local Time ---
@@ -171,6 +178,13 @@ void audio_info(const char *info)
 void audio_showstreamtitle(const char *info)
 {
   displayAdditionalInfo(info, WHITE);
+
+}
+void audio_eof_mp3(const char *info){  //end of file
+    Serial.print("eof_mp3     ");
+    Serial.println(info);
+
+    audio_ptr->connecttoFS(SD, alarmSound);
 
 }
 

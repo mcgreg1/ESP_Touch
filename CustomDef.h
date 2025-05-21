@@ -19,19 +19,19 @@
 #include "Audio.h"
 #include "SD.h"
 
-
+/*
 // Include fonts here as they define types (GFXfont) needed by extern declarations
 #include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSansBold18pt7b.h"
 #include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSans18pt7b.h"
 #include "/home/mcgreg/Arduino/libraries/Adafruit_GFX_Library/Fonts/FreeSans12pt7b.h"
-
+*/
 // --- Font Includes ---
 // Include fonts here as they define types (GFXfont) needed by extern declarations
-/*
+
 #include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSansBold18pt7b.h"
 #include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans18pt7b.h"
 #include "C:\Users\mcgre\Documents\Arduino\libraries\Adafruit_GFX_Library\Fonts\FreeSans12pt7b.h"
-*/
+
 // --- Display Configuration ---
 #define GFX_BL 38
 extern Arduino_DataBus *bus;         // Pointer Declaration
@@ -51,6 +51,7 @@ extern const int daylightOffset_sec;
 extern const long ntpSyncInterval;
 
 extern Audio *audio_ptr;
+extern const char *alarmSound; 
 // --- Touch Screen Pin Configuration ---
 #define TOUCH_GT911_SDA 19
 #define TOUCH_GT911_SCL 45

@@ -14,25 +14,21 @@ const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
 const long ntpSyncInterval = 5 * 60 * 1000;
 
-// Timekeeping
-const long interval = 1000;
-
 // Alarm State
 struct tm alarmTime;       // Defined here
 bool isAlarmSet = false;   // Defined here
 bool alarmIsActive;
 bool needsFullRedraw = false;
 bool alarmJustTriggered = false;
+const char *alarmSound = "/morning.mp3"; //"/buzzer.wav"
 
 static int alarmColorIndex = 0;
 static uint16_t alarmColors[] = {RED, GREEN, WHITE, BLACK}; // Using defines from CustomDef.h
-static bool beepState = false; // For alternating beep
 static unsigned long alarmPatternMillis = 0; 
 int currentVolume; // 0-21 (or your chosen range)
 
 unsigned long alarmAreaTouchStartTime = 0;
 bool alarmAreaTouchInProgress = false;
-const unsigned long alarmLongPressDuration = 1500; // 1.5 seconds in ms
 
 unsigned long lastWifiReconnectAttemptMillis = 0;
 int wifiReconnectAttemptCount = 0; // Counter for backoff stages
@@ -76,6 +72,7 @@ bool timeSynchronized = false;
 unsigned long lastNtpSyncMillis = 0;
 ClockState currentClockState = STATE_BOOTING;
 ClockState lastClockState = STATE_BOOTING;
+ClockState savedClockState;
 // Touch Coordinate Display
 unsigned long lastTouchMillis = 0;
 unsigned long elapsedTouchTime = 0;
@@ -509,6 +506,7 @@ void handleTouchInput() {
       if (isAlarmSet && alarmIsActive)
       {
         alarmIsActive=false;
+        audio_ptr->stopSong();
         needsFullRedraw=true;
       }
           bool actionProcessed = false;
@@ -554,70 +552,77 @@ void handleTouchInput() {
           }
 
 
-        if (radioIndex!=-1)
-        {
-            Serial.printf("Station Button %d Action Triggered.\n", radioIndex);
+            if (radioIndex!=-1)
+            {
+                Serial.printf("Station Button %d Action Triggered.\n", radioIndex);
 
-            if (activeStationIndex == radioIndex) { /* ... Deactivate ... */ 
-                Serial.println("  Deactivating station.");
-                activeStationIndex = -1;
-                audio_ptr->stopSong();
-                drawStationButton(radioIndex, false); // Redraw as inactive
-                displayAdditionalInfo(NULL, WHITE);
-                drawVolumeBar();
-            }
-            else { /* ... Activate ... */ 
-                Serial.printf("  Activating station: %s\n", station_labels[radioIndex]);
-                int previouslyActive = activeStationIndex;
-                if (previouslyActive != -1) {
-                    drawStationButton(previouslyActive, false); // Deactivate old one visually
+                if (activeStationIndex == radioIndex) { /* ... Deactivate ... */ 
+                    Serial.println("  Deactivating station.");
+                    activeStationIndex = -1;
+                    audio_ptr->stopSong();
+                    drawStationButton(radioIndex, false); // Redraw as inactive
+                    displayAdditionalInfo(NULL, WHITE);
+                    drawVolumeBar();
                 }
-                activeStationIndex = radioIndex;
-                drawStationButton(radioIndex, true); // Redraw new button as active
-                drawVolumeBar();
+                else { /* ... Activate ... */ 
+                    Serial.printf("  Activating station: %s\n", station_labels[radioIndex]);
+                    int previouslyActive = activeStationIndex;
+                    if (previouslyActive != -1) {
+                        drawStationButton(previouslyActive, false); // Deactivate old one visually
+                    }
+                    activeStationIndex = radioIndex;
+                    drawStationButton(radioIndex, true); // Redraw new button as active
+                    drawVolumeBar();
 
-                Serial.printf("  Connecting to host: %s\n", station_urls[radioIndex]);
-                if (!audio_ptr->connecttohost(station_urls[radioIndex])) {
-                        Serial.println("  ERROR: connecttohost failed!");
-                        drawStationButton(radioIndex, false); // Revert visual
-                        activeStationIndex = previouslyActive;
-                        if(activeStationIndex != -1) { drawStationButton(activeStationIndex, true); }
-                        // displayMessageScreen("Audio Error", "Connection Failed", RED); delay(2000);
-                } 
-                else {
-                    Serial.println("  connecttohost potentially successful.");
+                    Serial.printf("  Connecting to host: %s\n", station_urls[radioIndex]);
+                    if (!audio_ptr->connecttohost(station_urls[radioIndex])) {
+                            Serial.println("  ERROR: connecttohost failed!");
+                            drawStationButton(radioIndex, false); // Revert visual
+                            activeStationIndex = previouslyActive;
+                            if(activeStationIndex != -1) { drawStationButton(activeStationIndex, true); }
+                            // displayMessageScreen("Audio Error", "Connection Failed", RED); delay(2000);
+                    } 
+                    else {
+                        Serial.println("  connecttohost potentially successful.");
+                    }
                 }
             }
-        }
-
-        // Volume Down
-        if (touchX >= VOL_BUTTON_DOWN_X && touchX < (VOL_BUTTON_DOWN_X + VOL_BUTTON_WIDTH) &&
-            touchY >= VOL_BUTTON_DOWN_Y && touchY < (VOL_BUTTON_DOWN_Y + VOL_BUTTON_HEIGHT))
-        {
-            Serial.println("Volume Down Action.");
-            currentVolume = audio_ptr->getVolume();
-            if (currentVolume > 0) 
-              currentVolume--;
-            audio_ptr->setVolume(currentVolume);
-            saveSettingsToFlash();
-            Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
-            drawVolumeBar();
-        }
-        // Volume Up
-        else if (touchX >= VOL_BUTTON_UP_X && touchX < (VOL_BUTTON_UP_X + VOL_BUTTON_WIDTH) &&
-                  touchY >= VOL_BUTTON_UP_Y && touchY < (VOL_BUTTON_UP_Y + VOL_BUTTON_HEIGHT))
-        {
-              Serial.println("Volume Up Action.");
-              currentVolume = audio_ptr->getVolume();
-              if (currentVolume < MAX_VOLUME) 
-                currentVolume++;
-              audio_ptr->setVolume(currentVolume);
-              saveSettingsToFlash();
-              Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
-              drawVolumeBar();
+        }//state is running
+        if (currentClockState == STATE_RUNNING || currentClockState == STATE_SETTING_ALARM)
+        { 
+            // Volume Down
+            if (touchX >= VOL_BUTTON_DOWN_X && touchX < (VOL_BUTTON_DOWN_X + VOL_BUTTON_WIDTH) &&
+                touchY >= VOL_BUTTON_DOWN_Y && touchY < (VOL_BUTTON_DOWN_Y + VOL_BUTTON_HEIGHT))
+            {
+                Serial.println("Volume Down Action.");
+                currentVolume = audio_ptr->getVolume();
+                if (currentVolume > 0) 
+                currentVolume--;
+                audio_ptr->setVolume(currentVolume);
+                saveSettingsToFlash();
+                Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
+                drawVolumeBar();
+                if (currentClockState == STATE_SETTING_ALARM && audio_ptr && !audio_ptr->isRunning())
+                    audio_ptr->connecttoFS(SD, alarmSound);
+            }
+            // Volume Up
+            else if (touchX >= VOL_BUTTON_UP_X && touchX < (VOL_BUTTON_UP_X + VOL_BUTTON_WIDTH) &&
+                    touchY >= VOL_BUTTON_UP_Y && touchY < (VOL_BUTTON_UP_Y + VOL_BUTTON_HEIGHT))
+            {
+                Serial.println("Volume Up Action.");
+                currentVolume = audio_ptr->getVolume();
+                if (currentVolume < MAX_VOLUME) 
+                    currentVolume++;
+                audio_ptr->setVolume(currentVolume);
+                saveSettingsToFlash();
+                Serial.printf("  New Volume: %d\n", audio_ptr->getVolume());
+                drawVolumeBar();
+                if (currentClockState == STATE_SETTING_ALARM && audio_ptr && !audio_ptr->isRunning())
+                    audio_ptr->connecttoFS(SD, alarmSound);
+            }
         }
     
-        }//state is running
+
         // --- Check Alarm Area Touch ---
 
         if (touchX >= ALARM_RECT_X && touchX < (ALARM_RECT_X + ALARM_RECT_W) &&
@@ -721,6 +726,7 @@ void displaySetAlarmScreen(const struct tm* currentAlarmTime) {
     gfx->drawRect(ALARM_SET_M_X, ALARM_SET_BOX_Y, ALARM_SET_BOX_W, ALARM_SET_BOX_H, DARKGREY);
     centerText("MM+", ALARM_SET_BOX_Y, DARKGREY, NULL, 1); // Center label vertically
 
+    drawVolumeButtons();
 
     Serial.println("FUNCTION END: displaySetAlarmScreen");
 }
@@ -798,8 +804,10 @@ void handleSetAlarmClock(int touchX, int touchY)
           touchY >= OK_BUTTON_Y && touchY < (OK_BUTTON_Y + OK_BUTTON_H)) {
       Serial.println("Alarm OK Button Touched");
       alarmJustTriggered = false;
-      currentClockState = lastClockState;
+      currentClockState = savedClockState;
+      audio_ptr->stopSong();
       needsFullRedraw = true; // <<< SET FLAG FOR MAIN LOOP
+
       saveSettingsToFlash();
   }
   
@@ -865,8 +873,11 @@ void handleAlarmAreaTouch() {
     Serial.println("  Alarm Area Touched! Transitioning to Set Alarm state..."); // Example action
 
     // --- Action: Go to Set Alarm State ---
+    savedClockState= currentClockState;
     currentClockState = STATE_SETTING_ALARM;
     needsFullRedraw = true;             // Need to redraw screen for set alarm mode
+    audio_ptr->stopSong();
+    activeStationIndex=-1;
     displaySetAlarmScreen(&alarmTime); // Display the setting screen immediately
 }
 
@@ -876,26 +887,25 @@ void alarmActivated() {
     static unsigned long alarmPatternMillis = 0; // Stays here, initialized once
     unsigned long currentMillis = millis();
 
-    // This function is called REPEATEDLY while alarm conditions are met.
-    // alarmIsActive flag controls if we are in the "sounding/flashing" phase.
-
     if (!alarmIsActive) { // First time condition is met this minute
+
         Serial.println("!!! ALARM ACTIVATED - Starting Pattern !!!");
         alarmIsActive = true;
         alarmColorIndex = 0; // Reset color pattern
-        // beepState = false;     // Reset beep pattern for later
         alarmPatternMillis = currentMillis; // Start pattern timer
         // Optionally, stop any other audio
         if (audio_ptr && audio_ptr->isRunning()) {
+            activeStationIndex = -1;
             audio_ptr->stopSong();
         }
+        audio_ptr->connecttoFS(SD, alarmSound);
         // Force an immediate first flash and time display
         gfx->fillScreen(alarmColors[alarmColorIndex]); // Initial background color
         alarmColorIndex = (alarmColorIndex + 1) % (sizeof(alarmColors) / sizeof(alarmColors[0]));
     }
 
     // Handle flashing background and re-drawing time every ~500ms
-    if (alarmIsActive && (currentMillis - alarmPatternMillis >= 2000)) { // Interval for flashing
+    if (alarmIsActive && (currentMillis - alarmPatternMillis >= 1500)) { // Interval for flashing
         alarmPatternMillis = currentMillis;
 
         // --- Flashing Background ---
@@ -904,12 +914,9 @@ void alarmActivated() {
         // (Beep logic would go here later)
 
         alarmColorIndex = (alarmColorIndex + 1) % (sizeof(alarmColors) / sizeof(alarmColors[0]));
-        //audio_ptr->connecttoMem(ANNOYING_BEEP_Yi6_wav, ANNOYING_BEEP_Yi6_wav_len);
+       
     }
 
-    // --- Display Time (HH:MM) - Redraw if active, potentially on top of new background ---
-    // This part now runs every time alarmActivated is called while alarmIsActive is true,
-    // ensuring the time is redrawn on top of any background color change.
     if (alarmIsActive) {
         const GFXfont *alarmTimeFont = font_freesansbold18; // Use a large bold font
         uint8_t alarmTimeFontSize = 3; // << CHOOSE A LARGE SIZE (e.g., 2, 3, or 4)
@@ -917,29 +924,16 @@ void alarmActivated() {
         char timeStr[6]; // HH:MM + null
         snprintf(timeStr, sizeof(timeStr), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
 
-        // Calculate center position for the large time
-        int16_t x1, y1;
-        uint16_t text_w, text_h;
-        gfx->setFont(alarmTimeFont);
-        gfx->setTextSize(alarmTimeFontSize);
-        gfx->getTextBounds(timeStr, 0, 0, &x1, &y1, &text_w, &text_h);
-
-        int text_x_center = (w - text_w) / 2;
-        int text_y_center_top = (h - text_h) / 2; // Target top edge for centering text block
-
         // Determine text color for contrast against current background
         uint16_t textColor;
-        // Current background color is alarmColors[ (alarmColorIndex -1 + num_colors) % num_colors ]
-        // because alarmColorIndex was already incremented for the *next* background
+
         int currentBgColorIndex = (alarmColorIndex == 0) ? ((sizeof(alarmColors) / sizeof(alarmColors[0])) - 1) : (alarmColorIndex - 1);
         if (alarmColors[currentBgColorIndex] == BLACK || alarmColors[currentBgColorIndex] == RED) {
             textColor = WHITE;
         } else {
             textColor = BLACK;
         }
-
-        // Use centerText to draw it (it handles baseline adjustment)
-        centerText(timeStr, text_y_center_top, textColor, alarmTimeFont, alarmTimeFontSize);
+        centerText(timeStr, 230, textColor, alarmTimeFont, alarmTimeFontSize);
     }
 }
 
@@ -1154,6 +1148,8 @@ void drawVolumeBar()
 }
 void displayAdditionalInfo(const char *info, int color)
 {
+    if (currentClockState==STATE_SETTING_ALARM)
+        return;
     int letterPos = 295;
     int boxPos = letterPos - 20;
     if (info==NULL)
